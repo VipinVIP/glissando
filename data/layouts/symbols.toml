@@ -1,0 +1,76 @@
+# Shared layers and bottom-row templates. Width "*" fills the row up to the
+# widest row of the layer. Popup entries in braces are actions.
+
+[alternates]
+"," = "{emoji} {settings} {onehand} {clipboard}"
+"." = "? ! , ' \" - : ; @ ( ) # & % + / …"
+"?" = "¿ ‽"
+"!" = "¡"
+"-" = "– — _ ·"
+"$" = "₽ € £ ¥ ¢ ₩ ₹ ₴"
+"'" = "‘ ’ ‚ ‹ ›"
+"\"" = "“ ” „ « » ″"
+"%" = "‰ ℅"
+"0" = "ⁿ ∅ °"
+"1" = "¹ ½ ⅓ ¼ ⅛"
+"2" = "² ⅔"
+"3" = "³ ¾ ⅜"
+"4" = "⁴"
+"5" = "⅝"
+"7" = "⅞"
+"*" = "★ †  ‡"
+"=" = "≠ ≈ ∞"
+"<" = "≤ « ‹"
+">" = "≥ » ›"
+"(" = "[ { <"
+")" = "] } >"
+"/" = "\\"
+"&" = "§"
+"#" = "№"
+"+" = "±"
+".com" = ".ru .de .org .net .eu"
+
+[bottom]
+letters = "{layer=symbols:1.5} {comma} {lang} {space:*} {period} {enter:1.5}"
+letters_email = "{layer=symbols:1.5} @ {lang} {space:*} {period} {enter:1.5}"
+letters_url = "{layer=symbols:1.5} / {lang} {space:*} {text=.com:1.5} {enter:1.5}"
+
+[layers.symbols]
+rows = [
+  { keys = "1 2 3 4 5 6 7 8 9 0" },
+  { keys = "@ # $ _ & - + ( ) /" },
+  { keys = "{layer=symbols2:1.5} * \" ' : ; ! ? {backspace:1.5}" },
+]
+bottom = "{layer=letters:1.5} {comma} {layer=numpad} {space:*} {period} {enter:1.5}"
+
+[layers.symbols2]
+rows = [
+  { keys = "~ ` | • √ π ÷ × ¶ ∆" },
+  { keys = "£ ¢ € ¥ ^ ° = { } \\" },
+  { keys = "{layer=symbols:1.5} % © ® ™ ✓ [ ] {backspace:1.5}" },
+]
+bottom = "{layer=letters:1.5} < {layer=numpad} {space:*} > {enter:1.5}"
+
+[layers.numpad]
+rows = [
+  { keys = "+ 1:1.5 2:1.5 3:1.5 %" },
+  { keys = "- 4:1.5 5:1.5 6:1.5 {space}" },
+  { keys = "* 7:1.5 8:1.5 9:1.5 {backspace}" },
+  { keys = "{layer=letters} / {comma:0.75} 0:1.5 {period:0.75} {enter:1.5}" },
+]
+
+[layers.phone]
+rows = [
+  { keys = "1:1.5 2:1.5 3:1.5 -:1.5" },
+  { keys = "4:1.5 5:1.5 6:1.5 {space:1.5}" },
+  { keys = "7:1.5 8:1.5 9:1.5 {backspace:1.5}" },
+  { keys = "*:1 #:1 0:1.5 +:1 {enter:1.5}" },
+]
+
+[layers.digits]
+rows = [
+  { keys = "1:2 2:2 3:2" },
+  { keys = "4:2 5:2 6:2" },
+  { keys = "7:2 8:2 9:2" },
+  { keys = "{backspace:2} 0:2 {enter:2}" },
+]

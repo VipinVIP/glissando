@@ -1,0 +1,24 @@
+id = "en"
+name = "English"
+short = "EN"
+languages = ["en"]
+
+[alternates]
+a = "à á â ä æ ã å ā"
+c = "ç ć č"
+e = "è é ê ë ē ė ę"
+i = "î ï í ī į ì"
+n = "ñ ń"
+o = "ô ö ò ó œ ø ō õ"
+s = "ß ś š"
+u = "û ü ù ú ū"
+y = "ÿ"
+z = "ž ź ż"
+
+[layers.letters]
+rows = [
+  { keys = "q w e r t y u i o p", hints = "1 2 3 4 5 6 7 8 9 0" },
+  { keys = "{gap:0.5} a s d f g h j k l {gap:0.5}", hints = "@ # $ _ & - + ( )" },
+  { keys = "{shift:1.5} z x c v b n m {backspace:1.5}", hints = "* \" ' : ; ! ?" },
+]
+bottom = "letters"

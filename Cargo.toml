@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://example.invalid/glissando"
+rust-version = "1.80"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+opt-level = 3
+debug = "line-tables-only"
+panic = "abort"
+
+[profile.dev.package."*"]
+opt-level = 2

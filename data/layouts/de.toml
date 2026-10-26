@@ -1,0 +1,23 @@
+id = "de"
+name = "Deutsch"
+short = "DE"
+languages = ["de"]
+
+[alternates]
+a = "à á â æ ã å ā"
+c = "ç ć č"
+e = "è é ê ë ē ė ę"
+i = "î ï í ī į ì"
+n = "ñ ń"
+o = "ô ò ó œ ø ō õ"
+s = "ß ś š"
+u = "û ù ú ū"
+z = "ž ź ż"
+
+[layers.letters]
+rows = [
+  { keys = "q w e r t z u i o p ü", hints = "1 2 3 4 5 6 7 8 9 0 _" },
+  { keys = "a s d f g h j k l ö ä", hints = "@ # € _ & - + ( ) _ _" },
+  { keys = "{shift:2} y x c v b n m {backspace:2}", hints = "* \" ' : ; ! ?" },
+]
+bottom = "letters"
