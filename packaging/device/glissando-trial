@@ -1,0 +1,43 @@
+#!/bin/sh
+# Try glissando on the phone without changing the system configuration.
+#
+#   glissando-trial start [MINUTES]   stop the system keyboard and run glissando
+#                                     for MINUTES (default 30), then restore
+#   glissando-trial stop              stop glissando and restore the system keyboard now
+#   glissando-trial status
+#
+# The system keyboard (mobi.phosh.OSK.service: Stevia or Squeekboard) is
+# restarted by systemd in every case: normal stop, crash, timeout or logout.
+set -eu
+PREFIX="${GLISSANDO_PREFIX:-$HOME/.local/opt/glissando}"
+UNIT=glissando-trial
+case "${1:-status}" in
+start)
+    minutes="${2:-30}"
+    systemctl --user stop "$UNIT.service" 2>/dev/null || true
+    systemctl --user reset-failed "$UNIT.service" 2>/dev/null || true
+    systemctl --user stop mobi.phosh.OSK.service
+    systemd-run --user --unit="$UNIT" --collect \
+        -p RuntimeMaxSec="$((minutes * 60))" \
+        -p ExecStopPost="/usr/bin/systemctl --user start mobi.phosh.OSK.service" \
+        -p RestrictAddressFamilies="AF_UNIX AF_NETLINK" -p NoNewPrivileges=yes -p LockPersonality=yes \
+        --setenv=GLISSANDO_DATA_DIR="$PREFIX/share/glissando" \
+        --setenv=GLISSANDO_DEBUG="${GLISSANDO_DEBUG:-}" \
+        --setenv=WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" \
+        "$PREFIX/bin/glissando" --replace
+    echo "glissando runs for $minutes min; 'glissando-trial stop' restores the system keyboard."
+    ;;
+stop)
+    systemctl --user stop "$UNIT.service" 2>/dev/null || true
+    systemctl --user start mobi.phosh.OSK.service
+    echo "system keyboard restored"
+    ;;
+status)
+    systemctl --user --no-pager status "$UNIT.service" 2>/dev/null | head -5 || true
+    systemctl --user --no-pager is-active mobi.phosh.OSK.service || true
+    ;;
+*)
+    echo "usage: glissando-trial start [MINUTES] | stop | status" >&2
+    exit 2
+    ;;
+esac

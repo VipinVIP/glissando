@@ -1,0 +1,23 @@
+# Reproducible ARM64 build environment matching FuriOS 14 (Debian forky).
+# Runs entirely on x86-64 (cross compiler + arm64 multiarch libraries), no emulation needed.
+FROM docker.io/library/debian:testing-slim
+ARG SNAPSHOT=20260615T000000Z
+ARG RUST_VERSION=1.99.0
+RUN rm -f /etc/apt/sources.list.d/* \
+ && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} forky main" > /etc/apt/sources.list \
+ && printf 'Package: *\nPin: origin snapshot.debian.org\nPin-Priority: 1001\n' > /etc/apt/preferences
+ENV DEBIAN_FRONTEND=noninteractive
+RUN dpkg --add-architecture arm64 && apt-get update && apt-get install -y --allow-downgrades --no-install-recommends \
+      ca-certificates curl gcc gcc-aarch64-linux-gnu libc6-dev libc6-dev:arm64 pkgconf dpkg-dev fakeroot \
+      libglib2.0-dev:arm64 libcairo2-dev:arm64 libpango1.0-dev:arm64 \
+      libglib2.0-dev libcairo2-dev libpango1.0-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION} \
+      --target aarch64-unknown-linux-gnu
+ENV PATH=/root/.cargo/bin:$PATH \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
+    PKG_CONFIG_LIBDIR_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
+    PKG_CONFIG_SYSROOT_DIR=/
+WORKDIR /src

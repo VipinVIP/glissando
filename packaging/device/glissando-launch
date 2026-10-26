@@ -1,0 +1,28 @@
+#!/bin/sh
+# ExecStart wrapper used when glissando is installed as the session keyboard.
+# If glissando failed to start or crashed 3 times within 5 minutes, start the
+# system keyboard instead so text input never becomes impossible.
+PREFIX="${GLISSANDO_PREFIX:-$HOME/.local/opt/glissando}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/glissando"
+mkdir -p "$STATE"
+now=$(date +%s)
+recent=0
+if [ -f "$STATE/crashes" ]; then
+    for t in $(cat "$STATE/crashes"); do
+        [ $((now - t)) -lt 300 ] && recent=$((recent + 1))
+    done
+fi
+if [ "$recent" -ge 3 ] || [ ! -x "$PREFIX/bin/glissando" ]; then
+    echo "glissando: falling back to the system keyboard" >&2
+    for osk in /usr/bin/phosh-osk-stevia /usr/bin/squeekboard; do
+        [ -x "$osk" ] && exec "$osk" --allow-replacement
+    done
+fi
+export GLISSANDO_DATA_DIR="$PREFIX/share/glissando"
+"$PREFIX/bin/glissando" --allow-replacement
+rc=$?
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 143 ]; then
+    { [ -f "$STATE/crashes" ] && tail -n 5 "$STATE/crashes"; echo "$now"; } > "$STATE/crashes.new"
+    mv "$STATE/crashes.new" "$STATE/crashes"
+fi
+exit "$rc"

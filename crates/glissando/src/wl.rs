@@ -121,6 +121,7 @@ pub struct App {
     last_geometry: String,
     save_timer: Option<glib::SourceId>,
     pub quit: bool,
+    frames: u64,
 }
 
 pub struct Options {
@@ -342,8 +343,14 @@ impl App {
                 cairo::ImageSurface::create_for_data_unsafe(buf.map.as_mut_ptr(), cairo::Format::ARgb32, buf.w, buf.h, stride)
             };
             if let Ok(surf) = surf {
+                let t0 = Instant::now();
                 self.renderer.render(&surf, scale, &view, &self.theme);
                 surf.finish();
+                let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                self.frames += 1;
+                if debug() && (self.frames <= 3 || ms > 12.0) {
+                    eprintln!("glissando: frame {} {bw}x{bh} scale {scale:.2}: {ms:.1} ms", self.frames);
+                }
             }
         }
         buf.busy.store(true, Ordering::Release);
@@ -836,6 +843,7 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
         last_geometry: String::new(),
         save_timer: None,
         quit: false,
+        frames: 0,
     }));
     app.borrow_mut().me = Rc::downgrade(&app);
     queue.roundtrip(&mut app.borrow_mut()).map_err(|e| e.to_string())?;

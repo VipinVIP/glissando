@@ -1,0 +1,41 @@
+#!/bin/sh
+# Make glissando the session keyboard for this user only (no root needed):
+#
+#   glissando-session enable    use glissando from the next login (or now with --now)
+#   glissando-session disable   go back to the system keyboard
+#
+# Implemented as a systemd user drop-in for mobi.phosh.OSK.service, so
+# removing one file restores the original behaviour. glissando-launch falls
+# back to the system keyboard automatically if glissando keeps crashing.
+set -eu
+PREFIX="${GLISSANDO_PREFIX:-$HOME/.local/opt/glissando}"
+DIR="$HOME/.config/systemd/user/mobi.phosh.OSK.service.d"
+FILE="$DIR/glissando.conf"
+case "${1:-}" in
+enable)
+    mkdir -p "$DIR"
+    cat > "$FILE" <<CONF
+[Service]
+ExecStart=
+ExecStart=$PREFIX/bin/glissando-launch
+# The keyboard never needs the network: enforce it in the kernel.
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+NoNewPrivileges=yes
+LockPersonality=yes
+CONF
+    systemctl --user daemon-reload
+    echo "enabled; restarting the keyboard service"
+    systemctl --user restart mobi.phosh.OSK.service
+    ;;
+disable)
+    rm -f "$FILE"
+    rmdir "$DIR" 2>/dev/null || true
+    systemctl --user daemon-reload
+    systemctl --user restart mobi.phosh.OSK.service
+    echo "disabled; system keyboard restored"
+    ;;
+*)
+    echo "usage: glissando-session enable | disable" >&2
+    exit 2
+    ;;
+esac

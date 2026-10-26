@@ -56,7 +56,9 @@ class Session:
         else:
             raise RuntimeError("sway did not start: " + self.log("sway"))
         self.spawn("kb", [self.kb_bin, "--no-dbus", "--dump-geometry", self.geom_file, *kb_args],
-                   extra_env={"GLISSANDO_DEBUG": "1", **({"GLISSANDO_DEBUG_INPUT": "1"} if os.environ.get("E2E_INPUT") else {})})
+                   extra_env={"GLISSANDO_DEBUG": "1",
+                              **({"GLISSANDO_DEBUG_INPUT": "1"} if os.environ.get("E2E_INPUT") else {}),
+                              **({"LD_PRELOAD": os.environ["E2E_KB_PRELOAD"]} if os.environ.get("E2E_KB_PRELOAD") else {})})
         time.sleep(0.4)
         tc = [self.tk_bin, "textclient", "--state", self.state_file]
         if purpose:
