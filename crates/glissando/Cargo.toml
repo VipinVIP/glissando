@@ -7,10 +7,16 @@ edition = "2024"
 cairo-rs = "0.22.9"
 gio = "0.22.10"
 glib = "0.22.10"
+glib-unix = "0.22.8"
+glissando-core = { version = "0.1.0", path = "../glissando-core" }
+glissando-lang = { version = "0.1.0", path = "../glissando-lang" }
+glissando-swipe = { version = "0.1.0", path = "../glissando-swipe" }
 memmap2 = "0.9.12"
 pango = "0.22.9"
 pangocairo = "0.22.9"
-rustix = { version = "1.1.5", features = ["fs", "shm"] }
+rustix = { version = "1.1.5", features = ["fs", "pipe"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"
 wayland-client = "0.31.15"
 wayland-protocols = { version = "0.32.13", features = ["client", "unstable", "staging"] }
 wayland-protocols-misc = { version = "0.3.12", features = ["client"] }

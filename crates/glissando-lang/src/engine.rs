@@ -875,6 +875,11 @@ impl Engine {
         &self.langs[i]
     }
 
+    /// Active languages with their current log priors (for external decoders).
+    pub fn active_priors(&self) -> Vec<(usize, f32)> {
+        self.ranker_active()
+    }
+
     pub fn active_indices(&self) -> &[usize] {
         &self.active
     }
