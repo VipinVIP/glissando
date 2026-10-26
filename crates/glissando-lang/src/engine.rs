@@ -5,6 +5,7 @@
 
 use crate::model::{CandKind, Candidate, Language, LanguageDetector, Ranker};
 use crate::search::{InChar, SpatialModel};
+use std::collections::VecDeque;
 use glissando_core::text::{
     apply_case, case_pattern, chars_for_words_back, is_word_char, previous_words, sentence_start, tail_bytes,
     trailing_word, CasePattern,
@@ -161,6 +162,15 @@ pub struct Engine {
     before: String,
     after: String,
     context_known: bool,
+    /// Text around the cursor after each of our recent edits, oldest first.
+    /// A late surrounding-text report that matches one of them is an echo
+    /// of our own typing, not an edit by the user.
+    sent: VecDeque<(String, String)>,
+    /// The client has a selection (anchor != cursor).
+    selection: bool,
+    /// The next surrounding-text report follows an edit whose result we
+    /// cannot predict (typing over a selection) and is taken as it is.
+    trust_next: bool,
     suggestions: Vec<Suggestion>,
     undo: Option<Undo>,
     auto_space: bool,
@@ -170,6 +180,10 @@ pub struct Engine {
 }
 
 const CONTEXT_KEEP: usize = 300;
+const SENT_KEEP: usize = 32;
+/// Shorter contexts that agree on this many characters are taken as the same
+/// text cut at different points (clients send windows of varying size).
+const CONTEXT_MATCH: usize = 64;
 
 fn is_sentence_punct(s: &str) -> bool {
     matches!(s, "." | "," | "!" | "?" | ";" | ":" | "…")
@@ -191,6 +205,9 @@ impl Engine {
             before: String::new(),
             after: String::new(),
             context_known: false,
+            sent: VecDeque::new(),
+            selection: false,
+            trust_next: false,
             suggestions: Vec::new(),
             undo: None,
             auto_space: false,
@@ -231,8 +248,20 @@ impl Engine {
         self.reset();
     }
 
-    /// Forget all transient state (focus change, external edits).
+    /// Forget all transient state and the text context (focus change).
     pub fn reset(&mut self) {
+        self.drop_composing();
+        self.before.clear();
+        self.after.clear();
+        self.context_known = false;
+        self.sent.clear();
+        self.selection = false;
+        self.trust_next = false;
+    }
+
+    /// The user edited the text or moved the cursor: whatever the client did
+    /// with the preedit, the composing word is gone.
+    fn drop_composing(&mut self) {
         self.composing.clear();
         self.inputs.clear();
         self.undo = None;
@@ -241,21 +270,63 @@ impl Engine {
         self.refresh_suggestions();
     }
 
-    /// Surrounding text from the client. `external` is true unless the change
-    /// was caused by this input method.
-    pub fn set_surrounding(&mut self, before: &str, after: &str, external: bool) {
+    /// Surrounding text reported by the client; `selection` when the anchor
+    /// differs from the cursor. Returns true when the report shows an edit
+    /// or cursor move by the user rather than an echo of our own typing.
+    ///
+    /// The client's text change cause is not consulted: Qt never sets it,
+    /// so every change claims to come from the input method, and a missed
+    /// cursor move makes the next key continue the old word at the new
+    /// position ("hel" left behind, "help" typed elsewhere). The text itself
+    /// is compared with what our own edits must have produced instead; late
+    /// reports of earlier states are ignored.
+    pub fn set_surrounding(&mut self, before: &str, after: &str, selection: bool) -> bool {
+        self.selection = selection;
+        if !self.context_known || std::mem::take(&mut self.trust_next) {
+            self.take_context(before, after);
+            return false;
+        }
+        if same_before(before, &self.before) && same_after(after, &self.after) {
+            if before.len() > self.before.len() {
+                self.before = keep_tail(before);
+            }
+            if after.len() > self.after.len() {
+                self.after = after.chars().take(CONTEXT_KEEP).collect();
+            }
+            return false;
+        }
+        if self.sent.iter().any(|(b, a)| same_before(before, b) && same_after(after, a)) {
+            return false;
+        }
+        // Some clients include the preedit in the surrounding text.
+        if !self.composing.is_empty() && same_after(after, &self.after) {
+            if let Some(b) = before.strip_suffix(self.composing.as_str()) {
+                if same_before(b, &self.before) {
+                    return false;
+                }
+            }
+        }
+        self.take_context(before, after);
+        self.drop_composing();
+        true
+    }
+
+    fn take_context(&mut self, before: &str, after: &str) {
         self.before = keep_tail(before);
         self.after = after.chars().take(CONTEXT_KEEP).collect();
         self.context_known = true;
-        if external {
-            // The client resets the preedit on cursor moves and edits.
-            self.composing.clear();
-            self.inputs.clear();
-            self.undo = None;
-            self.auto_space = false;
-            self.last_was_space = false;
-            self.refresh_suggestions();
+        self.sent.clear();
+        self.remember_sent();
+    }
+
+    fn remember_sent(&mut self) {
+        if self.sent.back().map(|(b, a)| *b == self.before && *a == self.after).unwrap_or(false) {
+            return;
         }
+        if self.sent.len() >= SENT_KEEP {
+            self.sent.pop_front();
+        }
+        self.sent.push_back((self.before.clone(), self.after.clone()));
     }
 
     pub fn composing(&self) -> &str {
@@ -298,12 +369,14 @@ impl Engine {
     fn note_commit(&mut self, s: &str) {
         self.before.push_str(s);
         self.before = keep_tail(&self.before);
+        self.remember_sent();
     }
 
     fn note_delete(&mut self, chars: usize) -> usize {
         let bytes = tail_bytes(&self.before, chars);
         let keep = self.before.len() - bytes;
         self.before.truncate(keep);
+        self.remember_sent();
         bytes
     }
 
@@ -577,6 +650,10 @@ impl Engine {
                 self.auto_space = false;
             }
         }
+        if self.selection && self.composing.is_empty() {
+            // The client replaces the selection with whatever we send.
+            self.trust_next = true;
+        }
         if wordish && !self.private() && self.field.purpose != Purpose::Terminal {
             let c = single.unwrap();
             if self.composing.is_empty() {
@@ -667,6 +744,9 @@ impl Engine {
     pub fn backspace(&mut self) -> Vec<Op> {
         let mut ops = Vec::new();
         self.last_was_space = false;
+        if self.selection && self.composing.is_empty() {
+            return self.delete_selection();
+        }
         if !self.composing.is_empty() {
             if self.kind == Composing::Swipe {
                 // A glided word is removed as a whole.
@@ -733,6 +813,21 @@ impl Engine {
         self.context_known
     }
 
+    /// Backspace with a selection deletes the selection: a plain key event,
+    /// never delete_surrounding_text (Qt drops the whole update then).
+    fn delete_selection(&mut self) -> Vec<Op> {
+        self.undo = None;
+        self.auto_space = false;
+        self.trust_next = true;
+        let mut ops = Vec::new();
+        if self.use_preedit() {
+            ops.push(Op::Preedit(String::new()));
+        }
+        ops.push(Op::Key(Key::Backspace));
+        self.refresh_suggestions();
+        ops
+    }
+
     fn after_is_boundary(&self) -> bool {
         self.after.chars().next().map(|c| !is_word_char(c)).unwrap_or(true)
     }
@@ -748,6 +843,9 @@ impl Engine {
     /// Delete `n` words before the cursor (backspace glide).
     pub fn delete_words(&mut self, n: u32) -> Vec<Op> {
         let mut ops = Vec::new();
+        if self.selection && self.composing.is_empty() {
+            return self.delete_selection();
+        }
         if !self.composing.is_empty() {
             let had = self.composing.chars().count();
             self.composing.clear();
@@ -912,6 +1010,21 @@ impl Engine {
     }
 }
 
+/// Do two views of the text before the cursor agree? Either may be cut off
+/// at the start: we keep a tail, clients send a window (or the line).
+fn same_before(a: &str, b: &str) -> bool {
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let Some(rest) = long.strip_suffix(short) else { return false };
+    rest.is_empty() || rest.ends_with('\n') || short.chars().count() >= CONTEXT_MATCH
+}
+
+/// Same for the text after the cursor, which may be cut off at the end.
+fn same_after(a: &str, b: &str) -> bool {
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let Some(rest) = long.strip_prefix(short) else { return false };
+    rest.is_empty() || rest.starts_with('\n') || short.chars().count() >= CONTEXT_MATCH
+}
+
 fn keep_tail(s: &str) -> String {
     let n = s.chars().count();
     if n <= CONTEXT_KEEP {
@@ -1021,7 +1134,7 @@ mod tests {
         );
         let mut e = Engine::new(vec![en], Settings::default());
         e.set_layout(&["en".to_string()], qwerty());
-        e.set_surrounding("", "", true);
+        e.set_surrounding("", "", false);
         e
     }
 
@@ -1125,11 +1238,11 @@ mod tests {
         let mut e = engine();
         let mut d = Doc::default();
         type_str(&mut e, &mut d, "hello ");
-        e.set_surrounding(&d.text.clone(), "", false);
+        assert!(!e.set_surrounding(&d.text.clone(), "", false));
         // Manual space: plain backspace removes it.
         type_str(&mut e, &mut d, "\u{8}");
         assert_eq!(d.shown(), "hello");
-        e.set_surrounding(&d.text.clone(), "", false);
+        assert!(!e.set_surrounding(&d.text.clone(), "", false));
         type_str(&mut e, &mut d, "\u{8}");
         assert_eq!(d.shown(), "hell");
         assert_eq!(e.composing(), "hell");
@@ -1201,11 +1314,64 @@ mod tests {
         }
         let mut e = Engine::new(vec![ru], Settings::default());
         e.set_layout(&["ru".to_string()], SpatialModel::new(keys));
-        e.set_surrounding("", "", true);
+        e.set_surrounding("", "", false);
         let mut d = Doc::default();
         type_str(&mut e, &mut d, "как де");
         assert!(!e.suggestions().iter().any(|s| s.autocorrect && s.text == "Ле"), "{:?}", e.suggestions());
         assert!(e.suggestions().iter().any(|s| s.text == "дела"), "{:?}", e.suggestions());
+    }
+
+    #[test]
+    fn cursor_move_without_change_cause_ends_the_word() {
+        // Qt: the click commits the preedit where it was and moves the
+        // cursor; the report claims to come from the input method.
+        let mut e = engine();
+        let mut d = Doc::default();
+        type_str(&mut e, &mut d, "good hel");
+        assert!(!e.set_surrounding("good ", "", false));
+        assert_eq!(e.composing(), "hel");
+        assert!(e.set_surrounding("", "good hel", false), "cursor moved to the start");
+        assert_eq!(e.composing(), "");
+        let ops = e.text("x", None);
+        assert_eq!(ops, vec![Op::Preedit("x".into())]);
+    }
+
+    #[test]
+    fn late_echoes_are_not_edits() {
+        let mut e = engine();
+        let mut d = Doc::default();
+        type_str(&mut e, &mut d, "hello wor");
+        // Reports for states we already went past arrive late.
+        assert!(!e.set_surrounding("", "", false));
+        assert!(!e.set_surrounding("hello", "", false));
+        assert_eq!(e.composing(), "wor");
+        assert!(!e.set_surrounding("hello ", "", false));
+        type_str(&mut e, &mut d, "ld ");
+        assert_eq!(d.shown(), "hello world ");
+    }
+
+    #[test]
+    fn surrounding_text_may_include_the_preedit_or_be_cut() {
+        let mut e = engine();
+        let mut d = Doc::default();
+        let long = "x".repeat(400) + " ";
+        e.set_surrounding(&long, "", false);
+        type_str(&mut e, &mut d, "wor");
+        assert!(!e.set_surrounding(&format!("{long}wor"), "", false));
+        assert!(!e.set_surrounding(&long[200..], "", false), "shorter window");
+        assert_eq!(e.composing(), "wor");
+        assert!(e.set_surrounding("other text ", "", false));
+    }
+
+    #[test]
+    fn backspace_with_selection_is_a_key() {
+        let mut e = engine();
+        let mut d = Doc::default();
+        type_str(&mut e, &mut d, "hello ");
+        assert!(!e.set_surrounding("hello ", "", true), "same text, now selected");
+        assert_eq!(e.backspace(), vec![Op::Preedit(String::new()), Op::Key(Key::Backspace)]);
+        // Whatever the client reports next is the new context.
+        assert!(!e.set_surrounding("he", "", false));
     }
 
     #[test]

@@ -24,7 +24,7 @@ use wayland_client::protocol::{
 };
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum};
 use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_manager_v1, wp_fractional_scale_v1};
-use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::{ChangeCause, ContentHint, ContentPurpose};
+use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::{ContentHint, ContentPurpose};
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 use wayland_protocols_misc::zwp_input_method_v2::client::{zwp_input_method_manager_v2, zwp_input_method_v2};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -52,14 +52,13 @@ struct Buffer {
 struct ImState {
     active: bool,
     surrounding: Option<(String, u32, u32)>,
-    cause: Option<ChangeCause>,
     hint: ContentHint,
     purpose: Option<ContentPurpose>,
 }
 
 impl Default for ImState {
     fn default() -> Self {
-        ImState { active: false, surrounding: None, cause: None, hint: ContentHint::empty(), purpose: None }
+        ImState { active: false, surrounding: None, hint: ContentHint::empty(), purpose: None }
     }
 }
 
@@ -478,7 +477,6 @@ impl App {
         self.im_current.active = p.active;
         self.im_current.hint = p.hint;
         self.im_current.purpose = p.purpose;
-        self.im_current.cause = p.cause;
         // Surrounding text and content type persist until the next activate.
         self.im_pending.active = p.active;
         self.im_pending.hint = p.hint;
@@ -487,6 +485,9 @@ impl App {
             dlog!("activate");
             self.user_hidden = false;
             self.last_preedit.clear();
+            // A field that sends no surrounding text must not inherit the
+            // previous field's (deletes would go by stale byte counts).
+            self.im_current.surrounding = None;
             self.kb.activate(self.field_info());
         } else if !p.active && was_active {
             dlog!("deactivate");
@@ -495,13 +496,12 @@ impl App {
         } else if p.active && content_changed {
             self.kb.activate(self.field_info());
         }
-        if let Some((text, cursor, _anchor)) = p.surrounding {
+        if let Some((text, cursor, anchor)) = p.surrounding {
             let c = (cursor as usize).min(text.len());
             if text.is_char_boundary(c) {
-                let external = p.cause != Some(ChangeCause::InputMethod);
-                self.kb.surrounding(&text[..c], &text[c..], external && !activated);
+                self.kb.surrounding(&text[..c], &text[c..], anchor != cursor);
             }
-            self.im_current.surrounding = Some((text, cursor, 0));
+            self.im_current.surrounding = Some((text, cursor, anchor));
         }
         self.update_visibility();
         self.after_input();
@@ -1311,7 +1311,9 @@ impl Dispatch<zwp_input_method_v2::ZwpInputMethodV2, ()> for App {
             }
             Event::Deactivate => app.im_pending.active = false,
             Event::SurroundingText { text, cursor, anchor } => app.im_pending.surrounding = Some((text, cursor, anchor)),
-            Event::TextChangeCause { cause } => app.im_pending.cause = cause.into_result().ok(),
+            // Not reliable across toolkits (Qt never sets it); the engine
+            // compares the text instead.
+            Event::TextChangeCause { .. } => {}
             Event::ContentType { hint, purpose } => {
                 app.im_pending.hint = hint.into_result().unwrap_or(ContentHint::empty());
                 app.im_pending.purpose = purpose.into_result().ok();

@@ -19,7 +19,7 @@ if LANDSCAPE:
 
 
 class Session:
-    def __init__(self, args, purpose=None, hint=None, config=None, kb_args=()):
+    def __init__(self, args, purpose=None, hint=None, config=None, kb_args=(), toolkit=None):
         self.args = args
         self.tmp = tempfile.mkdtemp(prefix="glissando-e2e-")
         self.env = dict(os.environ)
@@ -74,6 +74,8 @@ class Session:
             tc += ["--purpose", purpose]
         if hint:
             tc += ["--hint", hint]
+        if toolkit:
+            tc += ["--toolkit", toolkit]
         self.spawn("tc", tc)
         self.wait(lambda: os.path.exists(self.geom_file) and self.surface_height() > 0, "keyboard surface")
         time.sleep(0.3)
@@ -220,6 +222,27 @@ def backspace_and_symbols(s):
     s.tap("@")
     s.wait(lambda: s.state()["text"] == "A@", "symbol committed")
     s.screenshot("symbols")
+
+
+def click_moves_cursor_to_start(s):
+    s.type("good hel")
+    s.wait(lambda: s.state()["text"] == "Good " and s.state()["preedit"] == "hel", "word being composed")
+    s.pointer(f"tap {OUT_W // 2} 40")  # click into the text field
+    s.wait(lambda: s.state()["text"] == "Good hel" and s.state()["cursor"] == 0, "preedit committed, cursor moved")
+    s.type("x ")
+    # Before the fix "hel" continued at the new position ("helx ...").
+    s.wait(lambda: s.state()["text"] == "X Good hel", "new word at the new position")
+
+
+@test
+def editing_with_cursor_moves(s):
+    click_moves_cursor_to_start(s)
+
+
+@test
+def editing_with_cursor_moves_qt(s):
+    click_moves_cursor_to_start(s)
+editing_with_cursor_moves_qt.toolkit = "qt"
 
 
 @test
@@ -410,7 +433,7 @@ def main():
             if t.__name__ == "password_field_is_private":
                 run_password(args)
             else:
-                s = Session(args, config=getattr(t, "config", None))
+                s = Session(args, config=getattr(t, "config", None), toolkit=getattr(t, "toolkit", None))
                 try:
                     t(s)
                 finally:

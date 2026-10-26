@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Words no longer split in two after moving the cursor in Qt apps and other
+  clients that do not report why the text changed: edits are recognised by
+  comparing the text, late reports of our own typing are ignored
+- Backspace with a selection deletes the selection with a key press
+- A field without surrounding text no longer inherits the previous field's
+
 ## 0.1.0 – first preview
 
 - Wayland keyboard for Phosh: input-method-v2, virtual keyboard fallback,

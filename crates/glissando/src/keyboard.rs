@@ -447,9 +447,8 @@ impl Keyboard {
         self.engine.set_field(self.field);
     }
 
-    pub fn surrounding(&mut self, before: &str, after: &str, external: bool) {
-        self.engine.set_surrounding(before, after, external);
-        if external {
+    pub fn surrounding(&mut self, before: &str, after: &str, selection: bool) {
+        if self.engine.set_surrounding(before, after, selection) {
             self.update_autoshift();
         }
     }

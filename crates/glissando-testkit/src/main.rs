@@ -1,10 +1,12 @@
 //! Test helpers for end-to-end runs in a nested/headless compositor.
 //!
-//! * `textclient [--purpose P] [--hint H] [--state FILE]` – a window with a
-//!   text-input-v3 field that behaves like a well-behaved toolkit: it
-//!   applies preedit/commit/delete events, reports surrounding text and
-//!   also accepts virtual keyboard keys. Its text state is written to FILE
-//!   as JSON after every change.
+//! * `textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt]` – a
+//!   window with a text-input-v3 field that behaves like a well-behaved
+//!   toolkit: it applies preedit/commit/delete events, reports surrounding
+//!   text and also accepts virtual keyboard keys. A click commits the
+//!   preedit where it is and puts the cursor at the start. With `--toolkit
+//!   qt` it never sets the text change cause, like Qt. Its text state is
+//!   written to FILE as JSON after every change.
 //! * `pointer <script>` – drives a virtual pointer. Script commands (`;`
 //!   separated): `tap X Y`, `down X Y`, `move X Y`, `up`, `swipe MS X1 Y1 X2 Y2 ...`,
 //!   `sleep MS`. Coordinates are logical, output-global.
@@ -36,6 +38,8 @@ struct Client {
     serial: u32,
     purpose: zwp_text_input_v3::ContentPurpose,
     hint: zwp_text_input_v3::ContentHint,
+    /// Report the text change cause (GTK does, Qt does not).
+    send_cause: bool,
     state_file: Option<String>,
     keymap: HashMap<u32, char>,
     configured: bool,
@@ -137,9 +141,25 @@ impl Client {
         }
         self.preedit.clear();
         self.write_state();
+        self.external_change();
+    }
+
+    /// A click in the field: the toolkit commits the preedit in place, then
+    /// the cursor moves to the start.
+    fn click(&mut self) {
+        let p = std::mem::take(&mut self.preedit);
+        self.text.insert_str(self.cursor, &p);
+        self.cursor = 0;
+        self.write_state();
+        self.external_change();
+    }
+
+    fn external_change(&mut self) {
         // Cursor moves are external changes for the input method.
         if let Some(ti) = &self.ti {
-            ti.set_text_change_cause(zwp_text_input_v3::ChangeCause::Other);
+            if self.send_cause {
+                ti.set_text_change_cause(zwp_text_input_v3::ChangeCause::Other);
+            }
         }
         self.send_state();
     }
@@ -177,7 +197,15 @@ macro_rules! noop {
 }
 
 noop!(Client; wl_compositor::WlCompositor, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_buffer::WlBuffer, wl_surface::WlSurface,
-    zwp_text_input_manager_v3::ZwpTextInputManagerV3, wl_pointer::WlPointer, xdg_toplevel::XdgToplevel);
+    zwp_text_input_manager_v3::ZwpTextInputManagerV3, xdg_toplevel::XdgToplevel);
+
+impl Dispatch<wl_pointer::WlPointer, ()> for Client {
+    fn event(c: &mut Self, _: &wl_pointer::WlPointer, e: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_pointer::Event::Button { state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } = e {
+            c.click();
+        }
+    }
+}
 
 impl Dispatch<xdg_wm_base::XdgWmBase, ()> for Client {
     fn event(_: &mut Self, b: &xdg_wm_base::XdgWmBase, e: xdg_wm_base::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
@@ -202,6 +230,9 @@ impl Dispatch<wl_seat::WlSeat, ()> for Client {
         if let wl_seat::Event::Capabilities { capabilities: WEnum::Value(c) } = e {
             if c.contains(wl_seat::Capability::Keyboard) {
                 seat.get_keyboard(qh, ());
+            }
+            if c.contains(wl_seat::Capability::Pointer) {
+                seat.get_pointer(qh, ());
             }
         }
     }
@@ -263,7 +294,9 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for Client {
                 eprintln!("tc: done {serial} preedit={:?} commit={:?}", c.pending.preedit.as_ref().map(|p| p.0.len()), c.pending.commit.as_ref().map(|s| s.len()));
                 c.serial = serial;
                 if let Some(ti) = &c.ti {
-                    ti.set_text_change_cause(zwp_text_input_v3::ChangeCause::InputMethod);
+                    if c.send_cause {
+                        ti.set_text_change_cause(zwp_text_input_v3::ChangeCause::InputMethod);
+                    }
                 }
                 c.apply_done();
             }
@@ -276,6 +309,7 @@ fn textclient(args: &[String]) {
     let mut purpose = zwp_text_input_v3::ContentPurpose::Normal;
     let mut hint = zwp_text_input_v3::ContentHint::empty();
     let mut state_file = None;
+    let mut send_cause = true;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -307,6 +341,10 @@ fn textclient(args: &[String]) {
                 i += 1;
                 state_file = Some(args[i].clone());
             }
+            "--toolkit" => {
+                i += 1;
+                send_cause = args[i] != "qt";
+            }
             _ => {}
         }
         i += 1;
@@ -334,6 +372,7 @@ fn textclient(args: &[String]) {
         serial: 0,
         purpose,
         hint,
+        send_cause,
         state_file,
         keymap: HashMap::new(),
         configured: false,
@@ -508,7 +547,7 @@ fn main() {
             pointer(&args[2..].join(" "), extent)
         }
         _ => {
-            eprintln!("usage: glissando-testkit textclient [--purpose P] [--hint H] [--state FILE] | pointer SCRIPT");
+            eprintln!("usage: glissando-testkit textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt] | pointer SCRIPT");
             std::process::exit(2);
         }
     }
