@@ -965,6 +965,9 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
     let data_control: Option<zwlr_data_control_manager_v1::ZwlrDataControlManagerV1> = globals.bind(&qh, 1..=2, ()).ok();
     let toplevel_manager: Option<zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1> =
         globals.bind(&qh, 1..=3, ()).ok();
+    if toplevel_manager.is_none() {
+        dlog!("no wlr-foreign-toplevel: apps are not told apart for automatic showing");
+    }
     let mut outputs = Vec::new();
     for g in globals.contents().clone_list() {
         if g.interface == wl_output::WlOutput::interface().name {
