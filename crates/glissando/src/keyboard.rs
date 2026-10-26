@@ -226,18 +226,6 @@ impl Keyboard {
         if self.landscape { self.config.height_landscape } else { self.config.height }
     }
 
-    pub fn layout(&self) -> &Layout {
-        &self.layouts[self.current]
-    }
-
-    pub fn layer_name(&self) -> &str {
-        &self.layer
-    }
-
-    pub fn shift(&self) -> Shift {
-        self.shift
-    }
-
     pub fn take_actions(&mut self) -> Vec<Action> {
         std::mem::take(&mut self.actions)
     }

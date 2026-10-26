@@ -90,11 +90,6 @@ impl ClipboardHistory {
         self.save_pinned();
     }
 
-    pub fn remove(&mut self, text: &str) {
-        self.clips.retain(|c| c.text != text);
-        self.save_pinned();
-    }
-
     pub fn clear(&mut self) {
         self.clips.retain(|c| c.pinned);
     }

@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 pub struct Emoji {
     pub text: String,
     pub group: usize,
+    /// Skin tone variants (for a future tone picker).
+    #[allow(dead_code)]
     pub tones: Vec<String>,
     /// Lowercased keywords of all languages.
     pub keywords: Vec<String>,

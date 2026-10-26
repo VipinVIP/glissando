@@ -124,7 +124,7 @@ fn bench_render() {
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph).unwrap();
     let mut r = render::Renderer::new(&config.font);
     let theme = theme::Theme::dark();
-    let mut time = |name: &str, kb: &mut keyboard::Keyboard, r: &mut render::Renderer, n: u32| {
+    let time = |name: &str, kb: &mut keyboard::Keyboard, r: &mut render::Renderer, n: u32| {
         let t = std::time::Instant::now();
         for i in 0..n {
             let v = kb.view(1000 + i);

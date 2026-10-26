@@ -26,7 +26,7 @@ verified only partially (see note) · ⬜ not started.
 
 ## Stage 4 – glide typing ✅
 * own decoder; e2e `glide_typing`; benchmark in ARCHITECTURE.md.
-* ✅ evaluation on real human traces (FUTO dataset): 87.7 % top-1 / 95.1 % top-3 held-out; ⬜ optional FUTO neural backend.
+* ✅ evaluation on real human traces (FUTO dataset): 87.7 % top-1 / 95.1 % top-3 held-out; ⬜ optional FUTO neural backend (deferred, see ARCHITECTURE.md).
 
 ## Stage 5 – remaining Gboard features
 * space cursor + glide delete ✅ e2e `space_cursor_and_glide_delete`

@@ -26,8 +26,6 @@ pub enum Icon {
     Down,
     Keyboard,
     Close,
-    Pin,
-    Trash,
     Recent,
 }
 
@@ -222,33 +220,6 @@ pub fn draw(cr: &cairo::Context, icon: Icon, cx: f64, cy: f64, size: f64) {
             cr.line_to(6.0, 6.0);
             cr.move_to(6.0, -6.0);
             cr.line_to(-6.0, 6.0);
-            cr.stroke().ok();
-        }
-        Icon::Pin => {
-            cr.move_to(-4.0, -9.0);
-            cr.line_to(4.0, -9.0);
-            cr.move_to(-3.0, -9.0);
-            cr.line_to(-3.0, -2.0);
-            cr.line_to(-6.0, 2.0);
-            cr.line_to(6.0, 2.0);
-            cr.line_to(3.0, -2.0);
-            cr.line_to(3.0, -9.0);
-            cr.move_to(0.0, 2.0);
-            cr.line_to(0.0, 9.5);
-            cr.stroke().ok();
-        }
-        Icon::Trash => {
-            cr.move_to(-8.0, -6.0);
-            cr.line_to(8.0, -6.0);
-            cr.move_to(-3.0, -6.0);
-            cr.line_to(-2.0, -9.0);
-            cr.line_to(2.0, -9.0);
-            cr.line_to(3.0, -6.0);
-            cr.stroke().ok();
-            cr.move_to(-6.0, -6.0);
-            cr.line_to(-5.0, 9.0);
-            cr.line_to(5.0, 9.0);
-            cr.line_to(6.0, -6.0);
             cr.stroke().ok();
         }
         Icon::Recent => {

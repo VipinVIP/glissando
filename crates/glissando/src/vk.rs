@@ -53,10 +53,6 @@ const FIXED: &[(VkKey, u32, &str, &str)] = &[
     (VkKey::Delete, 111, "DELE", "Delete"),
 ];
 
-/// Modifier masks in the order of the "complete" types/compat.
-pub const MOD_SHIFT: u32 = 1;
-pub const MOD_CTRL: u32 = 4;
-
 /// First evdev code used for dynamically mapped characters.
 const DYN_BASE: u32 = 184;
 const DYN_SLOTS: usize = 60;

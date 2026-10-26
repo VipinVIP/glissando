@@ -87,6 +87,11 @@ bound → alignment for 700 → full score for 120) gives p95 ≈ 1.5 ms on
 x86-64; on the phone p50 2.5 ms / p95 10 ms on a big core before the last
 optimisation step.
 
-Optional future backend: FUTO Swipe (`swipe-library`, ExecuTorch) as a
-separate plugin package, because its weights carry their own licence
-(attribution requirement) and the runtime is a large C++ dependency.
+FUTO Swipe backend (deferred): the published FUTO models exist only as
+ExecuTorch `.pte` files. Running them needs the ExecuTorch runtime, whose
+build requires a PyTorch toolchain for operator code generation and only
+targets Android/desktop out of the box; the weights also carry their own
+licence (visible "powered by FUTO Swipe" notice, not sublicensable). The
+plan is a separate optional package that provides candidates to the
+keyboard the same way `glissando-voice` provides transcripts, encoder-only
+so that it works with our en/de/ru tries and layouts.

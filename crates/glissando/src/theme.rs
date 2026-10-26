@@ -16,14 +16,6 @@ impl Rgba {
     pub const fn alpha(self, a: f64) -> Rgba {
         Rgba(self.0, self.1, self.2, a)
     }
-    pub fn mix(self, o: Rgba, t: f64) -> Rgba {
-        Rgba(
-            self.0 + (o.0 - self.0) * t,
-            self.1 + (o.1 - self.1) * t,
-            self.2 + (o.2 - self.2) * t,
-            self.3 + (o.3 - self.3) * t,
-        )
-    }
     pub fn set(&self, cr: &cairo::Context) {
         cr.set_source_rgba(self.0, self.1, self.2, self.3);
     }
