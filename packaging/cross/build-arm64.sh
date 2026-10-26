@@ -13,5 +13,5 @@ podman run --rm \
     -v "$HOME/.cargo/registry:/root/.cargo/registry:Z" \
     "$image" \
     cargo build --locked --release --target aarch64-unknown-linux-gnu \
-        -p glissando -p glissando-lang --bins
+        -p glissando -p glissando-lang -p glissando-settings --bins
 file "$root"/target/aarch64-unknown-linux-gnu/release/glissando

@@ -1,7 +1,7 @@
 //! glissando: an on-screen keyboard for Phosh.
 
 mod clipboard;
-mod config;
+use glissando_config as config;
 mod dbus;
 mod emoji;
 mod i18n;
@@ -211,6 +211,17 @@ fn main() {
                             let mut e = Engine::new(langs, engine_settings(&cfg));
                             std::mem::swap(&mut app.kb.engine, &mut e);
                             e.save_user_data();
+                        }
+                        let old = app.kb.config.clone();
+                        if cfg.user_data_epoch != old.user_data_epoch {
+                            app.kb.engine.clear_user_data();
+                            panels::RECENTS.with(|r| r.borrow_mut().clear());
+                            clipboard::HISTORY.with(|h| h.borrow_mut().clear_all());
+                        } else if cfg.user_dict_epoch != old.user_dict_epoch {
+                            let dir = config::data_dir().join("user");
+                            for l in app.kb.engine.langs.iter_mut() {
+                                l.user = UserModel::load(&dir.join(format!("{}.tsv", l.code)));
+                            }
                         }
                         app.apply_config(cfg, layouts);
                     }

@@ -3,7 +3,7 @@
 //! monitoring. Everything runs on the glib main loop.
 
 use crate::clipboard;
-use crate::config::{Config, ThemeMode};
+use glissando_config::{Config, ThemeMode};
 use crate::dbus::{self, Haptics, OskService};
 use crate::keyboard::{Action, Haptic, Keyboard};
 use crate::render::Renderer;
@@ -154,7 +154,7 @@ impl App {
         self.haptics.strength = config.haptic_strength as f64;
         self.haptics.ms = config.haptic_ms;
         clipboard::HISTORY.with(|h| {
-            h.borrow_mut().configure(config.clipboard_history, config.clipboard_hours, Some(crate::config::state_dir().join("pinned-clips")))
+            h.borrow_mut().configure(config.clipboard_history, config.clipboard_hours, Some(glissando_config::state_dir().join("pinned-clips")))
         });
         self.kb.engine.settings = crate::engine_settings(&config);
         self.kb.set_config(config, layouts);
@@ -640,7 +640,11 @@ impl App {
                     self.update_visibility();
                 }
                 Action::OpenSettings => {
-                    let _ = std::process::Command::new("glissando-settings").spawn();
+                    let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("glissando-settings")));
+                    let cmd = exe.filter(|p| p.exists()).unwrap_or_else(|| "glissando-settings".into());
+                    if let Err(e) = std::process::Command::new(cmd).spawn() {
+                        eprintln!("glissando: cannot start settings: {e}");
+                    }
                     self.user_hidden = true;
                     self.update_visibility();
                 }
@@ -829,7 +833,7 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
     haptics.strength = config.haptic_strength as f64;
     haptics.ms = config.haptic_ms;
     clipboard::HISTORY.with(|h| {
-        h.borrow_mut().configure(config.clipboard_history, config.clipboard_hours, Some(crate::config::state_dir().join("pinned-clips")))
+        h.borrow_mut().configure(config.clipboard_history, config.clipboard_hours, Some(glissando_config::state_dir().join("pinned-clips")))
     });
     let app = Rc::new(RefCell::new(App {
         conn: conn.clone(),

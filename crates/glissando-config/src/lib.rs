@@ -1,3 +1,5 @@
+//! Shared configuration of the keyboard and the settings app.
+//!
 //! User configuration (`$XDG_CONFIG_HOME/glissando/config.toml`).
 //!
 //! Every field has a default so partial files work; unknown keys are
@@ -47,6 +49,11 @@ pub struct Config {
     /// Hours to keep clipboard history.
     pub clipboard_hours: u32,
     pub emoji_recent: bool,
+    /// Bumped by the settings app after deleting personal data; the running
+    /// keyboard drops its in-memory copies when it changes.
+    pub user_data_epoch: u64,
+    /// Bumped after editing the personal dictionary; the keyboard reloads it.
+    pub user_dict_epoch: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +107,8 @@ impl Default for Config {
             clipboard_history: true,
             clipboard_hours: 1,
             emoji_recent: true,
+            user_data_epoch: 0,
+            user_dict_epoch: 0,
         }
     }
 }

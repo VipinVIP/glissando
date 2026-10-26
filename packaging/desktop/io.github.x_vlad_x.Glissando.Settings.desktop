@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Keyboard Settings
+Name[ru]=Настройки клавиатуры
+Name[de]=Tastatureinstellungen
+Comment=Configure the glissando on-screen keyboard
+Comment[ru]=Настройка экранной клавиатуры glissando
+Exec=glissando-settings
+Icon=io.github.x_vlad_x.Glissando
+Categories=Settings;GTK;
+Keywords=keyboard;osk;swipe;dictionary;клавиатура;
+StartupNotify=true
+X-Purism-FormFactor=Workstation;Mobile;

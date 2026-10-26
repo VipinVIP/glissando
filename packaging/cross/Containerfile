@@ -9,7 +9,7 @@ RUN rm -f /etc/apt/sources.list.d/* \
 ENV DEBIAN_FRONTEND=noninteractive
 RUN dpkg --add-architecture arm64 && apt-get update && apt-get install -y --allow-downgrades --no-install-recommends \
       ca-certificates curl gcc gcc-aarch64-linux-gnu libc6-dev libc6-dev:arm64 pkgconf dpkg-dev fakeroot \
-      libglib2.0-dev:arm64 libcairo2-dev:arm64 libpango1.0-dev:arm64 \
+      libglib2.0-dev:arm64 libcairo2-dev:arm64 libpango1.0-dev:arm64 libgtk-4-dev:arm64 libadwaita-1-dev:arm64 \
       libglib2.0-dev libcairo2-dev libpango1.0-dev \
  && rm -rf /var/lib/apt/lists/*
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION} \

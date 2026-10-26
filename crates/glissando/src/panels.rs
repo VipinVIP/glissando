@@ -1,7 +1,7 @@
 //! Full-keyboard panels: emoji picker, clipboard history and the quick menu.
 
 use crate::clipboard;
-use crate::config::{Config, OneHanded, ThemeMode};
+use glissando_config::{Config, OneHanded, ThemeMode};
 use crate::emoji::{group_icon, EmojiDb, Recents};
 use crate::i18n::tr;
 use crate::icons::Icon;

@@ -3,7 +3,7 @@
 //! platform layer and a [`View`] for the renderer. Free of Wayland so it can
 //! be tested headless.
 
-use crate::config::{Config, OneHanded};
+use glissando_config::{Config, OneHanded};
 use crate::icons::Icon;
 use crate::panels::{PanelHit, PanelKind, PanelState};
 use crate::render::{popup_layout, KeyLabel, KeyView, Popup, PopupEntry, StripItem, StripView, View};
