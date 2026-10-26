@@ -61,7 +61,7 @@ packaging/debian/build-deb.sh           # dist/glissando_*.deb, dist/glissando-v
 On the phone:
 
 ```bash
-sudo apt install ./glissando_0.1.0_arm64.deb ./glissando-voice_0.1.0_arm64.deb
+sudo apt install ./glissando_0.2.0_arm64.deb ./glissando-voice_0.2.0_arm64.deb
 # switch (takes effect after re-login, or restart the keyboard service):
 sudo update-alternatives --set Phosh-OSK /usr/share/glissando/io.github.x_vlad_x.Glissando.desktop
 systemctl --user daemon-reload && systemctl --user restart mobi.phosh.OSK.service

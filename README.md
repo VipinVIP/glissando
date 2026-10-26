@@ -51,6 +51,8 @@ system (Mobian, postmarketOS, PureOS…).
   multitouch rollover; shift chording and caps lock
 - Number row, one-handed mode, adjustable height, portrait and landscape
 - Layouts for email and URL fields, number/phone/PIN pads
+- Terminal keys (Esc, Tab, Ctrl, Alt, arrows) in terminal apps
+- Choose apps where the keyboard does not open by itself (e.g. Calculator)
 
 **More**
 - Emoji panel with categories, recents and search (EN/DE/RU keywords),

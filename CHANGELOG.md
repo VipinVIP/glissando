@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 – second preview
 
 - Words no longer split in two after moving the cursor in Qt apps and other
   clients that do not report why the text changed: edits are recognised by
