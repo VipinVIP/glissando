@@ -26,13 +26,13 @@ verified only partially (see note) · ⬜ not started.
 
 ## Stage 4 – glide typing ✅
 * own decoder; e2e `glide_typing`; benchmark in ARCHITECTURE.md.
-* ⬜ evaluation on real human traces (FUTO swipe dataset), ⬜ optional FUTO backend.
+* ✅ evaluation on real human traces (FUTO dataset): 87.7 % top-1 / 95.1 % top-3 held-out; ⬜ optional FUTO neural backend.
 
 ## Stage 5 – remaining Gboard features
 * space cursor + glide delete ✅ e2e `space_cursor_and_glide_delete`
 * password privacy ✅ e2e `password_field_is_private`
-* ⬜ settings application (GTK4/libadwaita) – config file + quick menu exist
-* ⬜ emoji search UI (data + search function exist), emoji suggestions in strip
+* ✅ settings application (GTK4/libadwaita, en/ru/de), runs on the phone (launcher entry, user scope)
+* 🟡 emoji search (query in the strip, typed or glided) and emoji suggestions while typing — builds, unit tests pass, no dedicated e2e test yet
 * ⬜ voice input (local, e.g. whisper.cpp/Vosk) as optional module
 * ⬜ landscape layout tuning, split layout
 

@@ -546,6 +546,18 @@ impl Engine {
         Some(out)
     }
 
+    /// Insert text verbatim (emoji, clipboard): finishes the composing word first.
+    pub fn insert_raw(&mut self, text: &str) -> Vec<Op> {
+        let mut ops = self.commit_composing();
+        // commit_composing ends with a preedit reset; append after it.
+        self.commit(text, &mut ops);
+        self.undo = None;
+        self.auto_space = false;
+        self.last_was_space = false;
+        self.refresh_suggestions();
+        ops
+    }
+
     /// A text key was tapped. `text` is already cased; `touch` is the touch
     /// point in key units for the spatial model.
     pub fn text(&mut self, text: &str, touch: Option<(f32, f32)>) -> Vec<Op> {

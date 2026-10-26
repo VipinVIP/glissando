@@ -49,6 +49,8 @@ pub struct Config {
     /// Hours to keep clipboard history.
     pub clipboard_hours: u32,
     pub emoji_recent: bool,
+    /// Offer matching emoji in the suggestion strip while typing.
+    pub emoji_suggestions: bool,
     /// Bumped by the settings app after deleting personal data; the running
     /// keyboard drops its in-memory copies when it changes.
     pub user_data_epoch: u64,
@@ -107,6 +109,7 @@ impl Default for Config {
             clipboard_history: true,
             clipboard_hours: 1,
             emoji_recent: true,
+            emoji_suggestions: true,
             user_data_epoch: 0,
             user_dict_epoch: 0,
         }

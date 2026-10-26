@@ -25,6 +25,8 @@ pub enum PanelHit {
     Config(Config),
     OpenSettings,
     ClearPersonalData,
+    /// Start emoji search with the keyboard.
+    Search,
     Redraw,
 }
 
@@ -36,6 +38,7 @@ enum CellAction {
     Clip(String),
     ClearClips,
     Close,
+    Search,
     Backspace,
     Toggle(MenuItem),
     None,
@@ -68,6 +71,10 @@ pub fn init_emoji(db: EmojiDb, recents: Recents) {
 
 fn with_db<R>(f: impl FnOnce(&EmojiDb) -> R) -> R {
     EMOJI.with(|c| f(c.get_or_init(EmojiDb::default)))
+}
+
+pub fn search_emoji(query: &str, max: usize) -> Vec<String> {
+    with_db(|db| db.search(query, max).into_iter().map(|e| e.text.clone()).collect())
 }
 
 pub fn emoji_for_word(word: &str) -> Vec<String> {
@@ -194,9 +201,15 @@ impl PanelState {
                     PanelCell::Button { text: "ABC".into() },
                     CellAction::Close,
                 ));
-                let tw = (c.w - 2.0 * side) / tabs.len() as f32;
+                self.footer.push((
+                    Rect::new(c.x + side, fy, 40.0, FOOTER_H),
+                    PanelCell::Icon { icon: Icon::Search, active: false },
+                    CellAction::Search,
+                ));
+                let left = side + 40.0;
+                let tw = (c.w - left - side) / tabs.len() as f32;
                 for (i, (cell, act)) in tabs.into_iter().enumerate() {
-                    self.footer.push((Rect::new(c.x + side + i as f32 * tw, fy, tw, FOOTER_H), cell, act));
+                    self.footer.push((Rect::new(c.x + left + i as f32 * tw, fy, tw, FOOTER_H), cell, act));
                 }
                 self.footer.push((
                     Rect::new(c.right() - side, fy, side, FOOTER_H),
@@ -421,6 +434,7 @@ impl PanelState {
                 Some(PanelHit::Redraw)
             }
             CellAction::Close => Some(PanelHit::Close),
+            CellAction::Search => Some(PanelHit::Search),
             CellAction::Backspace => Some(PanelHit::Backspace),
             CellAction::Toggle(item) => {
                 let mut c = self.config.clone();

@@ -117,6 +117,8 @@ pub struct Keyboard {
     field: FieldInfo,
     symbol_typed: bool,
     pub panel: Option<PanelState>,
+    /// Emoji search query while searching with the letter keys.
+    emoji_search: Option<String>,
     side: Vec<Rect>,
     now: u32,
 }
@@ -169,6 +171,7 @@ impl Keyboard {
             field: FieldInfo::default(),
             symbol_typed: false,
             panel: None,
+            emoji_search: None,
             side: Vec::new(),
             now: 0,
         };
@@ -400,6 +403,7 @@ impl Keyboard {
         self.field = field;
         self.engine.set_field(field);
         self.panel = None;
+        self.emoji_search = None;
         self.layer = self.default_layer();
         self.shift = Shift::Off;
         self.shift_manual_off = false;
@@ -532,7 +536,31 @@ impl Keyboard {
         }
     }
 
+    /// Keys type into the emoji search query while searching.
+    fn search_key(&mut self, action: &KeyAction) -> bool {
+        let Some(q) = &mut self.emoji_search else { return false };
+        match action {
+            KeyAction::Text(t) => q.push_str(&t.to_lowercase()),
+            KeyAction::Space => q.push(' '),
+            KeyAction::Backspace => {
+                if q.pop().is_none() {
+                    self.emoji_search = None;
+                    self.open_panel(PanelKind::Emoji);
+                }
+            }
+            KeyAction::Enter | KeyAction::Hide => {
+                self.emoji_search = None;
+            }
+            KeyAction::Shift | KeyAction::Layer(_) => return false,
+            _ => {}
+        }
+        true
+    }
+
     fn activate_key_action(&mut self, action: &KeyAction, touch: Option<(f32, f32)>) {
+        if self.search_key(action) {
+            return;
+        }
         match action {
             KeyAction::Text(t) => self.type_text(&t.clone(), touch),
             KeyAction::Space => {
@@ -624,7 +652,32 @@ impl Keyboard {
             v.push((Rect::new(w - 52.0, 0.0, 52.0, h), StripItem::Icon(Icon::Hide), StripTap::Hide));
             return v;
         }
+        if let Some(q) = &self.emoji_search {
+            v.push((Rect::new(0.0, 0.0, 44.0, h), StripItem::Icon(Icon::Left), StripTap::SearchBack));
+            let qw = 116.0;
+            v.push((
+                Rect::new(44.0, 0.0, qw, h),
+                StripItem::Text { text: format!("🔍 {q}▏"), emphasized: false },
+                StripTap::None,
+            ));
+            let n = ((w - 44.0 - qw) / 44.0).floor().max(0.0) as usize;
+            for (i, e) in crate::panels::search_emoji(q, n).into_iter().enumerate() {
+                v.push((Rect::new(44.0 + qw + i as f32 * 44.0, 0.0, 44.0, h), StripItem::Text { text: e.clone(), emphasized: false }, StripTap::Emoji(e)));
+            }
+            return v;
+        }
         let sugg = self.engine.suggestions();
+        // Emoji matching the word being typed get a narrow slot on the right.
+        let word_emoji = if self.config.emoji_suggestions && !self.engine.composing().is_empty() {
+            let best = sugg.iter().find(|s| s.autocorrect).map(|s| s.text.clone()).unwrap_or_else(|| self.engine.composing().to_string());
+            crate::panels::emoji_for_word(&best).into_iter().next()
+        } else {
+            None
+        };
+        let w = if word_emoji.is_some() { w - 48.0 } else { w };
+        if let Some(e) = &word_emoji {
+            v.push((Rect::new(w, 0.0, 48.0, h), StripItem::Text { text: e.clone(), emphasized: false }, StripTap::WordEmoji(e.clone())));
+        }
         if !sugg.is_empty() {
             // Gboard order: second, best, third.
             let order: Vec<usize> = match sugg.len() {
@@ -681,6 +734,22 @@ impl Keyboard {
             StripTap::ClosePanel => self.close_panel(),
             StripTap::Hide => self.actions.push(Action::Hide),
             StripTap::OneHanded => self.toggle_one_handed(),
+            StripTap::SearchBack => {
+                self.emoji_search = None;
+                self.open_panel(PanelKind::Emoji);
+            }
+            StripTap::Emoji(e) => {
+                crate::panels::RECENTS.with(|r| r.borrow_mut().used(&e));
+                let ops = self.engine.insert_raw(&e);
+                self.push_ops(ops);
+            }
+            StripTap::WordEmoji(e) => {
+                let mut ops = self.engine.space();
+                ops.extend(self.engine.insert_raw(&e));
+                self.push_ops(ops);
+                self.after_text();
+            }
+            StripTap::None => {}
         }
     }
 
@@ -756,7 +825,7 @@ impl Keyboard {
                 let items = self.strip_items();
                 if self.strip_pressed == Some(i) {
                     if let Some((_, _, tap)) = items.get(i) {
-                        let tap = *tap;
+                        let tap = tap.clone();
                         self.strip_tap(tap);
                     }
                 }
@@ -823,10 +892,13 @@ impl Keyboard {
     fn panel_hit(&mut self, hit: PanelHit) {
         match hit {
             PanelHit::Commit(text) => {
-                let ops = self.engine.commit_composing();
+                let ops = self.engine.insert_raw(&text);
                 self.push_ops(ops);
-                self.push_ops(vec![Op::Commit(text.clone())]);
-                self.engine.set_surrounding(&format!("{}{}", self.engine.before(), text), "", false);
+            }
+            PanelHit::Search => {
+                self.close_panel();
+                self.emoji_search = Some(String::new());
+                self.switch_layer("letters");
             }
             PanelHit::Paste(text) => self.actions.push(Action::Paste(text)),
             PanelHit::Backspace => {
@@ -1078,6 +1150,10 @@ impl Keyboard {
         if words.is_empty() {
             return;
         }
+        if let Some(q) = &mut self.emoji_search {
+            *q = words[0].to_lowercase();
+            return;
+        }
         let pattern = self.case_pattern();
         let ops = self.engine.swipe(words, pattern);
         self.push_ops(ops);
@@ -1232,13 +1308,20 @@ impl Keyboard {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum StripTap {
     Suggestion(usize),
     Panel(PanelKind),
     ClosePanel,
     Hide,
     OneHanded,
+    /// Leave emoji search (back to the emoji panel).
+    SearchBack,
+    /// Insert an emoji (search result).
+    Emoji(String),
+    /// Finish the current word and append the emoji.
+    WordEmoji(String),
+    None,
 }
 
 fn json_str(s: &str) -> String {
