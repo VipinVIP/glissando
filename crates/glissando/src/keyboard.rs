@@ -53,6 +53,16 @@ pub enum Action {
     SaveConfig,
     /// Paste the given clipboard history entry.
     Paste(String),
+    /// Start local speech recognition in the given language ("auto" allowed).
+    VoiceStart(String),
+    VoiceStop,
+    VoiceCancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VoiceUi {
+    Listening(f32),
+    Processing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +133,9 @@ pub struct Keyboard {
     pub panel: Option<PanelState>,
     /// Emoji search query while searching with the letter keys.
     emoji_search: Option<String>,
+    voice: Option<VoiceUi>,
+    /// Set by the platform when a speech model and engine are installed.
+    pub voice_available: bool,
     side: Vec<Rect>,
     now: u32,
 }
@@ -176,6 +189,8 @@ impl Keyboard {
             symbol_typed: false,
             panel: None,
             emoji_search: None,
+            voice: None,
+            voice_available: false,
             side: Vec::new(),
             now: 0,
         };
@@ -426,6 +441,9 @@ impl Keyboard {
     }
 
     pub fn deactivate(&mut self) {
+        if self.voice.take().is_some() {
+            self.actions.push(Action::VoiceCancel);
+        }
         let ops = self.engine.commit_composing();
         self.push_ops(ops);
         self.im_active = false;
@@ -665,6 +683,19 @@ impl Keyboard {
             v.push((Rect::new(w - 52.0, 0.0, 52.0, h), StripItem::Icon(Icon::Hide), StripTap::Hide));
             return v;
         }
+        if let Some(vs) = self.voice {
+            let (msg, tap) = match vs {
+                VoiceUi::Listening(level) => {
+                    let bars = (level * 8.0).round() as usize;
+                    (format!("{} {}", crate::i18n::tr("voice-listening"), "▮".repeat(bars.max(1))), StripTap::VoiceStop)
+                }
+                VoiceUi::Processing => (crate::i18n::tr("voice-processing").to_string(), StripTap::None),
+            };
+            v.push((Rect::new(0.0, 0.0, 52.0, h), StripItem::Icon(Icon::Mic), StripTap::VoiceStop));
+            v.push((Rect::new(52.0, 0.0, w - 104.0, h), StripItem::Text { text: msg, emphasized: false }, tap));
+            v.push((Rect::new(w - 52.0, 0.0, 52.0, h), StripItem::Icon(Icon::Close), StripTap::VoiceCancel));
+            return v;
+        }
         if let Some(q) = &self.emoji_search {
             v.push((Rect::new(0.0, 0.0, 44.0, h), StripItem::Icon(Icon::Left), StripTap::SearchBack));
             let qw = 116.0;
@@ -727,6 +758,9 @@ impl Keyboard {
             v.push((Rect::new(4.0 + i as f32 * 50.0, 0.0, 50.0, h), StripItem::Icon(icon), tap));
         }
         v.push((Rect::new(w - 54.0, 0.0, 50.0, h), StripItem::Icon(Icon::Hide), StripTap::Hide));
+        if self.voice_available && !self.field.private() {
+            v.push((Rect::new(w - 104.0, 0.0, 50.0, h), StripItem::Icon(Icon::Mic), StripTap::Voice));
+        }
         v
     }
 
@@ -762,7 +796,74 @@ impl Keyboard {
                 self.push_ops(ops);
                 self.after_text();
             }
+            StripTap::Voice => self.start_voice(),
+            StripTap::VoiceStop => {
+                if matches!(self.voice, Some(VoiceUi::Listening(_))) {
+                    self.voice = Some(VoiceUi::Processing);
+                    self.actions.push(Action::VoiceStop);
+                }
+            }
+            StripTap::VoiceCancel => {
+                self.voice = None;
+                self.actions.push(Action::VoiceCancel);
+            }
             StripTap::None => {}
+        }
+    }
+
+    fn start_voice(&mut self) {
+        let ops = self.engine.commit_composing();
+        self.push_ops(ops);
+        let lang = self
+            .engine
+            .language_probabilities()
+            .into_iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|l| l.0)
+            .unwrap_or_else(|| "auto".into());
+        self.voice = Some(VoiceUi::Listening(0.0));
+        self.actions.push(Action::VoiceStart(lang));
+    }
+
+    /// A message from the speech helper (see glissando-voice).
+    pub fn voice_event(&mut self, line: &str) {
+        let (kind, rest) = line.split_once(' ').unwrap_or((line, ""));
+        match kind {
+            "level" => {
+                if let Some(VoiceUi::Listening(_)) = self.voice {
+                    self.voice = Some(VoiceUi::Listening(rest.parse().unwrap_or(0.0)));
+                }
+            }
+            "processing" => {
+                if self.voice.is_some() {
+                    self.voice = Some(VoiceUi::Processing);
+                }
+            }
+            "text" => {
+                let was_active = self.voice.take().is_some();
+                let t = rest.trim();
+                if was_active && !t.is_empty() {
+                    let before = self.engine.before().to_string();
+                    let mut text = String::new();
+                    if !before.is_empty() && !before.ends_with(char::is_whitespace) {
+                        text.push(' ');
+                    }
+                    if self.engine.autocap() {
+                        text.push_str(&glissando_core::text::capitalize(t));
+                    } else {
+                        text.push_str(t);
+                    }
+                    let ops = self.engine.insert_raw(&text);
+                    self.push_ops(ops);
+                    self.update_autoshift();
+                }
+            }
+            "error" => {
+                self.voice = None;
+                self.strip_message = Some((rest.to_string(), true));
+            }
+            "end" => self.voice = None,
+            _ => {}
         }
     }
 
@@ -1331,6 +1432,9 @@ enum StripTap {
     OneHanded,
     /// Leave emoji search (back to the emoji panel).
     SearchBack,
+    Voice,
+    VoiceStop,
+    VoiceCancel,
     /// Insert an emoji (search result).
     Emoji(String),
     /// Finish the current word and append the emoji.

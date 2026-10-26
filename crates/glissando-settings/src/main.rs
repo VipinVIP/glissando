@@ -218,7 +218,18 @@ fn preferences_page(nav: &adw::NavigationView, state: &State) -> adw::Navigation
             spin(state, tr("Vibration duration (ms)"), 3.0, 60.0, 1.0, 0, |c| c.haptic_ms as f64, |c, v| c.haptic_ms = v as u32).upcast_ref(),
         ],
     );
-    page(nav, tr("Preferences"), &[keys, layout, tap])
+    let voice = group(
+        tr("Voice typing"),
+        &[switch(
+            state,
+            tr("Voice typing"),
+            Some(tr("Local speech recognition with whisper.cpp; audio never leaves the device")),
+            |c| c.voice,
+            |c, v| c.voice = v,
+        )
+        .upcast_ref()],
+    );
+    page(nav, tr("Preferences"), &[keys, layout, tap, voice])
 }
 
 fn theme_page(nav: &adw::NavigationView, state: &State) -> adw::NavigationPage {

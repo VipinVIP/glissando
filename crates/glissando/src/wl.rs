@@ -123,6 +123,26 @@ pub struct App {
     save_timer: Option<glib::SourceId>,
     pub quit: bool,
     frames: u64,
+    voice: Option<(std::process::Child, std::process::ChildStdin)>,
+}
+
+/// Path of a helper binary installed next to the keyboard (or in PATH).
+fn helper(name: &str) -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(name)))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| name.into())
+}
+
+pub fn voice_available() -> bool {
+    std::process::Command::new(helper("glissando-voice"))
+        .arg("--check")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 pub struct Options {
@@ -662,6 +682,15 @@ impl App {
                     let ops = vec![Op::Commit(text)];
                     self.apply_ops(ops);
                 }
+                Action::VoiceStart(lang) => self.voice_start(&lang),
+                Action::VoiceStop => self.voice_send("stop"),
+                Action::VoiceCancel => {
+                    self.voice_send("cancel");
+                    if let Some((mut c, _)) = self.voice.take() {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                    }
+                }
             }
         }
         // Text reaches the application before we spend time drawing; a late
@@ -675,6 +704,73 @@ impl App {
             self.schedule_animation();
         }
         self.flush();
+    }
+
+    fn voice_send(&mut self, msg: &str) {
+        if let Some((_, stdin)) = &mut self.voice {
+            use std::io::Write;
+            let _ = writeln!(stdin, "{msg}");
+        }
+    }
+
+    fn voice_start(&mut self, lang: &str) {
+        if let Some((mut c, _)) = self.voice.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+        let child = std::process::Command::new(helper("glissando-voice"))
+            .args(["--lang", lang])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                self.kb.voice_event(&format!("error {e}"));
+                return;
+            }
+        };
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let fd = stdout.as_raw_fd();
+        let _ = rustix::fs::fcntl_setfl(&stdout, rustix::fs::OFlags::NONBLOCK);
+        let mut file = std::fs::File::from(OwnedFd::from(stdout));
+        let mut buf = String::new();
+        let me = self.me.clone();
+        glib_unix::unix_fd_add_local(fd, glib::IOCondition::IN | glib::IOCondition::HUP, move |_, _| {
+            let mut chunk = [0u8; 4096];
+            let mut eof = false;
+            loop {
+                match file.read(&mut chunk) {
+                    Ok(0) => {
+                        eof = true;
+                        break;
+                    }
+                    Ok(n) => buf.push_str(&String::from_utf8_lossy(&chunk[..n])),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => {
+                        eof = true;
+                        break;
+                    }
+                }
+            }
+            let Some(app) = me.upgrade() else { return glib::ControlFlow::Break };
+            let Ok(mut app) = app.try_borrow_mut() else { return glib::ControlFlow::Continue };
+            while let Some(i) = buf.find('\n') {
+                let line: String = buf.drain(..=i).collect();
+                app.kb.voice_event(line.trim_end());
+            }
+            if eof {
+                app.kb.voice_event("end");
+                if let Some((mut c, _)) = app.voice.take() {
+                    let _ = c.wait();
+                }
+            }
+            app.after_input();
+            if eof { glib::ControlFlow::Break } else { glib::ControlFlow::Continue }
+        });
+        self.voice = Some((child, stdin));
     }
 
     fn schedule_animation(&mut self) {
@@ -885,6 +981,7 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
         save_timer: None,
         quit: false,
         frames: 0,
+        voice: None,
     }));
     app.borrow_mut().me = Rc::downgrade(&app);
     queue.roundtrip(&mut app.borrow_mut()).map_err(|e| e.to_string())?;

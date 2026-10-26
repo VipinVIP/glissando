@@ -53,6 +53,8 @@ pub fn tr(key: &str) -> &'static str {
             "История буфера обмена выключена.",
             "Der Zwischenablage-Verlauf ist aus.",
         ),
+        "voice-listening" => ("Speak now…", "Говорите…", "Jetzt sprechen…"),
+        "voice-processing" => ("Recognising…", "Распознаю…", "Wird erkannt…"),
         _ => return "?",
     };
     match l {

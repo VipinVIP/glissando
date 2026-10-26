@@ -3,13 +3,24 @@
 #   packaging/device/deploy.sh [ssh-host]      (default host: furios)
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+voice=0
+if [ "${1:-}" = "--voice" ]; then voice=1; shift; fi
 host="${1:-furios}"
 bin="$root/target/aarch64-unknown-linux-gnu/release"
 [ -x "$bin/glissando" ] || { echo "build first: packaging/cross/build-arm64.sh" >&2; exit 1; }
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/bin" "$stage/share/glissando"
-install -m755 "$bin/glissando" "$bin/glissando-settings" "$stage/bin/"
+install -m755 "$bin/glissando" "$bin/glissando-settings" "$bin/glissando-voice" "$stage/bin/"
+if [ "$voice" = 1 ]; then
+    # Local speech recognition: whisper.cpp (MIT) + multilingual base model (MIT).
+    [ -x "$root/build/whisper-arm64/bin/whisper-cli" ] || "$root/packaging/voice/build-whisper.sh"
+    model="$root/.devtools/voice/ggml-base-q8_0.bin"
+    [ -f "$model" ] || curl -fL -o "$model" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q8_0.bin
+    echo "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9  $model" | sha256sum -c -
+    install -Dm755 "$root/build/whisper-arm64/bin/whisper-cli" "$stage/libexec/glissando/whisper-cli"
+    install -Dm644 "$model" "$stage/share/glissando/voice/ggml-base-q8_0.bin"
+fi
 install -m755 "$root"/packaging/device/glissando-{trial,launch,session} "$stage/bin/"
 cp -r "$root/data/layouts" "$root/data/emoji" "$stage/share/glissando/"
 mkdir -p "$stage/share/glissando/dict"

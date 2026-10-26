@@ -94,6 +94,8 @@ const RU: &[(&str, &str)] = &[
     ("Version", "Версия"),
     ("Free software under the GNU GPL v3 or later. Word lists: Android Open Source Project (Apache-2.0); word pair statistics: Leipzig Corpora Collection (CC BY 4.0); emoji names: Unicode CLDR (Unicode License v3).", "Свободное ПО по лицензии GNU GPL v3 или новее. Списки слов: Android Open Source Project (Apache-2.0); статистика пар слов: Leipzig Corpora Collection (CC BY 4.0); названия эмодзи: Unicode CLDR (Unicode License v3)."),
     ("Configuration file", "Файл настроек"),
+    ("Voice typing", "Голосовой ввод"),
+    ("Local speech recognition with whisper.cpp; audio never leaves the device", "Локальное распознавание речи whisper.cpp; звук не покидает устройство"),
     ("Personal data", "Личные данные"),
 ];
 
@@ -141,6 +143,7 @@ const DE: &[(&str, &str)] = &[
     ("Add a word", "Wort hinzufügen"),
     ("About", "Info"),
     ("Version", "Version"),
+    ("Voice typing", "Spracheingabe"),
 ];
 
 fn table() -> Option<&'static HashMap<&'static str, &'static str>> {

@@ -39,6 +39,7 @@ class Session:
             "WLR_RENDERER": "pixman",
             "GLISSANDO_TK_EXTENT": f"{OUT_W}x{OUT_H}",
         })
+        voice_setup(self.env)
         if config:
             os.makedirs(self.env["XDG_CONFIG_HOME"] + "/glissando", exist_ok=True)
             with open(self.env["XDG_CONFIG_HOME"] + "/glissando/config.toml", "w") as f:
@@ -362,6 +363,32 @@ def typing_without_emoji_suggestions(s):
     s.type("hello")
     s.wait(lambda: (s.state()["text"] + s.state()["preedit"]) == "Hello", "Hello typed")
 typing_without_emoji_suggestions.config = "emoji_suggestions = false\n"
+
+
+VOICE_ENGINE = os.path.join(ROOT, "build/whisper-host/bin")
+VOICE_MODEL = os.path.join(ROOT, ".devtools/voice/ggml-base-q8_0.bin")
+VOICE_INPUT = os.path.join(ROOT, ".devtools/voice/jfk.raw")
+
+
+@test
+def voice_input(s):
+    if not (os.path.exists(VOICE_MODEL) and os.path.exists(VOICE_INPUT) and os.path.isdir(VOICE_ENGINE)):
+        print("  (skipped: run packaging/voice/build-whisper-host.sh and fetch the model)")
+        return
+    top = OUT_H - s.current_height()
+    s.pointer(f"tap {OUT_W - 79} {top + 22}")  # microphone in the toolbar
+    time.sleep(0.5)
+    s.screenshot("voice-listening")
+    s.wait(lambda: "fellow Americans" in s.state()["text"], "transcript inserted", timeout=60)
+
+
+def voice_setup(session_env):
+    voice_dir = os.path.join(session_env["XDG_DATA_HOME"], "glissando", "voice")
+    os.makedirs(voice_dir, exist_ok=True)
+    if os.path.exists(VOICE_MODEL) and not os.path.exists(os.path.join(voice_dir, "model.bin")):
+        os.symlink(VOICE_MODEL, os.path.join(voice_dir, "model.bin"))
+    session_env["PATH"] = VOICE_ENGINE + ":" + os.path.join(ROOT, "target", "debug") + ":" + session_env.get("PATH", "")
+    session_env["GLISSANDO_VOICE_TEST_INPUT"] = VOICE_INPUT
 
 
 def main():

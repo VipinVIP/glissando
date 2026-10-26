@@ -389,6 +389,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "glissando-voice"
+version = "0.1.0"
+
+[[package]]
 name = "gobject-sys"
 version = "0.22.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

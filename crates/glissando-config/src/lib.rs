@@ -51,6 +51,8 @@ pub struct Config {
     pub emoji_recent: bool,
     /// Offer matching emoji in the suggestion strip while typing.
     pub emoji_suggestions: bool,
+    /// Show the microphone button when a local speech model is installed.
+    pub voice: bool,
     /// Bumped by the settings app after deleting personal data; the running
     /// keyboard drops its in-memory copies when it changes.
     pub user_data_epoch: u64,
@@ -110,6 +112,7 @@ impl Default for Config {
             clipboard_hours: 1,
             emoji_recent: true,
             emoji_suggestions: true,
+            voice: true,
             user_data_epoch: 0,
             user_dict_epoch: 0,
         }

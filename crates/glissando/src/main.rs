@@ -182,6 +182,7 @@ fn main() {
     let engine = Engine::new(langs, engine_settings(&config));
     let mut kb = keyboard::Keyboard::new(config.clone(), layouts, engine);
     kb.resize(360.0, false);
+    kb.voice_available = config.voice && wl::voice_available();
     if let Some(p) = config::find_resource("emoji/emoji.tsv") {
         panels::init_emoji(emoji::EmojiDb::load(&p), emoji::Recents::load(&config::state_dir().join("recent-emoji")));
     }
