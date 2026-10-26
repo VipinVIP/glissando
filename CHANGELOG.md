@@ -7,6 +7,9 @@
   comparing the text, late reports of our own typing are ignored
 - Backspace with a selection deletes the selection with a key press
 - A field without surrounding text no longer inherits the previous field's
+- Terminal keys: Esc, Tab, Ctrl, Alt and arrows above the letters in
+  terminals (and when typing without an input-method client); Ctrl and Alt
+  apply to the next key, arrows repeat while held
 
 ## 0.1.0 – first preview
 

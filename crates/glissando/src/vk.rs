@@ -19,7 +19,12 @@ pub enum VkKey {
     Delete,
     Ctrl,
     Shift,
+    Alt,
 }
+
+/// Modifier masks of the uploaded keymap (real modifiers Shift, Control, Mod1).
+pub const MOD_CTRL: u32 = 4;
+pub const MOD_ALT: u32 = 8;
 
 impl From<NavKey> for VkKey {
     fn from(n: NavKey) -> VkKey {
@@ -44,6 +49,7 @@ const FIXED: &[(VkKey, u32, &str, &str)] = &[
     (VkKey::Return, 28, "RTRN", "Return"),
     (VkKey::Ctrl, 29, "LCTL", "Control_L"),
     (VkKey::Shift, 42, "LFSH", "Shift_L"),
+    (VkKey::Alt, 56, "LALT", "Alt_L"),
     (VkKey::Home, 102, "HOME", "Home"),
     (VkKey::Up, 103, "UP", "Up"),
     (VkKey::Left, 105, "LEFT", "Left"),
@@ -94,13 +100,16 @@ impl Keymap {
         for (i, c) in self.dynamic.iter().enumerate() {
             let code = DYN_BASE + i as u32 + 8;
             codes.push_str(&format!("    <I{code}> = {code};\n"));
-            syms.push_str(&format!("    key <I{code}> {{ [ U{:04X} ] }};\n", *c as u32));
+            // Plain names for ASCII letters and digits, so that Ctrl+C is
+            // the keysym `c` that terminals expect.
+            let sym = if c.is_ascii_alphanumeric() { c.to_string() } else { format!("U{:04X}", *c as u32) };
+            syms.push_str(&format!("    key <I{code}> {{ [ {sym} ] }};\n"));
         }
         format!(
             "xkb_keymap {{\n  xkb_keycodes \"glissando\" {{\n    minimum = 8;\n    maximum = 255;\n{codes}  }};\n  \
              xkb_types \"glissando\" {{ include \"complete\" }};\n  \
              xkb_compatibility \"glissando\" {{ include \"complete\" }};\n  \
-             xkb_symbols \"glissando\" {{\n{syms}    modifier_map Control {{ <LCTL> }};\n    modifier_map Shift {{ <LFSH> }};\n  }};\n}};\n"
+             xkb_symbols \"glissando\" {{\n{syms}    modifier_map Control {{ <LCTL> }};\n    modifier_map Shift {{ <LFSH> }};\n    modifier_map Mod1 {{ <LALT> }};\n  }};\n}};\n"
         )
     }
 }

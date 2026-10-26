@@ -246,6 +246,21 @@ editing_with_cursor_moves_qt.toolkit = "qt"
 
 
 @test
+def terminal_keys(s):
+    s.wait(lambda: any(k["key"] == "{ctrl}" for k in s.geometry()), "terminal row")
+    s.type("ls")
+    s.tap("{ctrl}")
+    s.screenshot("terminal-ctrl")
+    s.tap("c")
+    s.tap("{alt}")
+    s.tap("{left}")
+    s.tap("{escape}")
+    s.wait(lambda: s.state()["text"] == "ls<C-c><A-Left><Esc>", "keys with modifiers")
+    s.screenshot("terminal")
+terminal_keys.purpose = "terminal"
+
+
+@test
 def glide_typing(s):
     pts = []
     for ch in "hello":
@@ -433,7 +448,8 @@ def main():
             if t.__name__ == "password_field_is_private":
                 run_password(args)
             else:
-                s = Session(args, config=getattr(t, "config", None), toolkit=getattr(t, "toolkit", None))
+                s = Session(args, config=getattr(t, "config", None), toolkit=getattr(t, "toolkit", None),
+                            purpose=getattr(t, "purpose", None))
                 try:
                     t(s)
                 finally:

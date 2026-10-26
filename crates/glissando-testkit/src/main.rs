@@ -5,14 +5,14 @@
 //!   toolkit: it applies preedit/commit/delete events, reports surrounding
 //!   text and also accepts virtual keyboard keys. A click commits the
 //!   preedit where it is and puts the cursor at the start. With `--toolkit
-//!   qt` it never sets the text change cause, like Qt. Its text state is
-//!   written to FILE as JSON after every change.
+//!   qt` it never sets the text change cause, like Qt. Keys pressed with
+//!   Ctrl/Alt are written into the text as `<C-c>`, `<A-Left>`. Its text
+//!   state is written to FILE as JSON after every change.
 //! * `pointer <script>` – drives a virtual pointer. Script commands (`;`
 //!   separated): `tap X Y`, `down X Y`, `move X Y`, `up`, `swipe MS X1 Y1 X2 Y2 ...`,
 //!   `sleep MS`. Coordinates are logical, output-global.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
@@ -42,6 +42,10 @@ struct Client {
     send_cause: bool,
     state_file: Option<String>,
     keymap: HashMap<u32, char>,
+    /// Depressed modifier mask from the virtual keyboard.
+    mods: u32,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
+    pointer: Option<wl_pointer::WlPointer>,
     configured: bool,
     surface: Option<wl_surface::WlSurface>,
     shm: Option<wl_shm::WlShm>,
@@ -106,7 +110,34 @@ impl Client {
     }
 
     fn key(&mut self, code: u32) {
+        if self.mods & (4 | 8) != 0 {
+            let name = match code {
+                1 => "Esc".to_string(),
+                14 => "BackSpace".into(),
+                15 => "Tab".into(),
+                28 => "Return".into(),
+                103 => "Up".into(),
+                105 => "Left".into(),
+                106 => "Right".into(),
+                108 => "Down".into(),
+                other => self.keymap.get(&other).map(|c| c.to_string()).unwrap_or_else(|| format!("#{other}")),
+            };
+            let tag = format!("<{}{}{name}>", if self.mods & 4 != 0 { "C-" } else { "" }, if self.mods & 8 != 0 { "A-" } else { "" });
+            self.text.insert_str(self.cursor, &tag);
+            self.cursor += tag.len();
+            self.write_state();
+            self.external_change();
+            return;
+        }
         match code {
+            1 => {
+                self.text.insert_str(self.cursor, "<Esc>");
+                self.cursor += 5;
+            }
+            15 => {
+                self.text.insert(self.cursor, '\t');
+                self.cursor += 1;
+            }
             14 => {
                 if self.cursor > 0 {
                     let prev = self.text[..self.cursor].chars().last().unwrap();
@@ -226,20 +257,21 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for Client {
 }
 
 impl Dispatch<wl_seat::WlSeat, ()> for Client {
-    fn event(_: &mut Self, seat: &wl_seat::WlSeat, e: wl_seat::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
+    fn event(cl: &mut Self, seat: &wl_seat::WlSeat, e: wl_seat::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
         if let wl_seat::Event::Capabilities { capabilities: WEnum::Value(c) } = e {
-            if c.contains(wl_seat::Capability::Keyboard) {
-                seat.get_keyboard(qh, ());
+            if c.contains(wl_seat::Capability::Keyboard) && cl.keyboard.is_none() {
+                cl.keyboard = Some(seat.get_keyboard(qh, ()));
             }
-            if c.contains(wl_seat::Capability::Pointer) {
-                seat.get_pointer(qh, ());
+            if c.contains(wl_seat::Capability::Pointer) && cl.pointer.is_none() {
+                cl.pointer = Some(seat.get_pointer(qh, ()));
             }
         }
     }
 }
 
 fn parse_keymap(text: &str) -> HashMap<u32, char> {
-    // Understands the keymaps glissando uploads: `key <I200> { [ U0436 ] };`
+    // Understands the keymaps glissando uploads as the compositor passes
+    // them on: `key <I200> { [ U0436 ] };`, `[ c ]` or `[ 0x63 ]`.
     let mut m = HashMap::new();
     for line in text.lines() {
         let l = line.trim();
@@ -247,10 +279,8 @@ fn parse_keymap(text: &str) -> HashMap<u32, char> {
             let code: Option<u32> = rest.split('>').next().and_then(|n| n.parse().ok());
             let sym = rest.split('[').nth(1).and_then(|s| s.split(']').next()).map(|s| s.trim());
             if let (Some(code), Some(sym)) = (code, sym) {
-                if let Some(hex) = sym.strip_prefix('U') {
-                    if let Some(ch) = u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) {
-                        m.insert(code - 8, ch);
-                    }
+                if let Some(ch) = keysym_char(sym) {
+                    m.insert(code - 8, ch);
                 }
             }
         }
@@ -258,13 +288,29 @@ fn parse_keymap(text: &str) -> HashMap<u32, char> {
     m
 }
 
+fn keysym_char(sym: &str) -> Option<char> {
+    let mut cs = sym.chars();
+    if let (Some(ch), None) = (cs.next(), cs.next()) {
+        return Some(ch);
+    }
+    let cp = if let Some(hex) = sym.strip_prefix("0x") {
+        let v = u32::from_str_radix(hex, 16).ok()?;
+        if v < 0x100 { v } else { v.checked_sub(0x0100_0000)? }
+    } else {
+        u32::from_str_radix(sym.strip_prefix('U')?, 16).ok()?
+    };
+    char::from_u32(cp)
+}
+
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     fn event(c: &mut Self, _: &wl_keyboard::WlKeyboard, e: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match e {
             wl_keyboard::Event::Keymap { fd, size, .. } => {
-                let mut f = std::fs::File::from(fd);
+                // The descriptor may share its file offset with earlier ones.
+                use std::os::unix::fs::FileExt;
+                let f = std::fs::File::from(fd);
                 let mut buf = vec![0u8; size as usize];
-                if f.read_exact(&mut buf).is_ok() {
+                if f.read_exact_at(&mut buf, 0).is_ok() {
                     let s = String::from_utf8_lossy(&buf).to_string();
                     c.keymap = parse_keymap(&s);
                 }
@@ -275,6 +321,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
                     c.send_state();
                 }
             }
+            wl_keyboard::Event::Modifiers { mods_depressed, .. } => c.mods = mods_depressed,
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => c.key(key),
             _ => {}
         }
@@ -375,6 +422,9 @@ fn textclient(args: &[String]) {
         send_cause,
         state_file,
         keymap: HashMap::new(),
+        mods: 0,
+        keyboard: None,
+        pointer: None,
         configured: false,
         surface: Some(surface),
         shm: Some(shm),

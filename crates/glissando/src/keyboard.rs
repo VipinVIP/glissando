@@ -32,6 +32,28 @@ pub enum NavKey {
     Escape,
 }
 
+/// Ctrl/Alt latched from the terminal keys for the next key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Mods {
+    pub ctrl: bool,
+    pub alt: bool,
+}
+
+impl Mods {
+    pub fn any(&self) -> bool {
+        self.ctrl || self.alt
+    }
+}
+
+/// A key sent together with modifiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChordKey {
+    Char(char),
+    Nav(NavKey),
+    Backspace,
+    Enter,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Haptic {
     Key,
@@ -44,6 +66,8 @@ pub enum Action {
     /// Text operations for the focused client.
     Ops(Vec<Op>),
     Nav(NavKey),
+    /// A key with Ctrl and/or Alt held.
+    Chord(ChordKey, Mods),
     Haptic(Haptic),
     Hide,
     OpenSettings,
@@ -108,6 +132,7 @@ pub struct Keyboard {
     shift: Shift,
     /// The user switched shift off while auto-capitalisation wanted it on.
     shift_manual_off: bool,
+    mods: Mods,
     touch: TouchMachine,
     pub engine: Engine,
     decoder: ShapeDecoder,
@@ -150,6 +175,7 @@ fn key_kind(k: &KeyDef) -> KeyKind {
         KeyAction::Backspace => KeyKind::Backspace,
         KeyAction::Shift => KeyKind::Shift,
         KeyAction::NextLanguage => KeyKind::Other { popup: true },
+        KeyAction::Left | KeyAction::Right | KeyAction::Up | KeyAction::Down => KeyKind::Repeat,
         _ => KeyKind::Other { popup: !k.popup_entries().is_empty() },
     }
 }
@@ -166,6 +192,7 @@ impl Keyboard {
             layer: "letters".into(),
             shift: Shift::Off,
             shift_manual_off: false,
+            mods: Mods::default(),
             engine,
             decoder: ShapeDecoder::default(),
             keymap: KeyMap::default(),
@@ -323,6 +350,20 @@ impl Keyboard {
             }
             layer.rows.insert(0, RowDef { keys: row, height: 0.82 });
         }
+        if self.terminal_row() && (letters || self.layer.starts_with("symbols")) {
+            let mut row = parse_row("{esc} {tab} {ctrl} {alt} {left} {down} {up} {right}").unwrap();
+            let w = layer.max_units() / row.len() as f32;
+            for k in row.iter_mut() {
+                k.width = w;
+                k.label = match k.action {
+                    KeyAction::Escape => Some("Esc".into()),
+                    KeyAction::Ctrl => Some("Ctrl".into()),
+                    KeyAction::Alt => Some("Alt".into()),
+                    _ => None,
+                };
+            }
+            layer.rows.insert(0, RowDef { keys: row, height: 0.82 });
+        }
         if !self.config.hints {
             for r in layer.rows.iter_mut() {
                 for k in r.keys.iter_mut() {
@@ -341,6 +382,12 @@ impl Keyboard {
             }
         }
         layer
+    }
+
+    /// Esc, Tab, Ctrl, Alt and arrows above the keys in terminals (and when
+    /// typing without an input-method client, which is mostly terminals too).
+    fn terminal_row(&self) -> bool {
+        self.config.terminal_keys && self.field.purpose == Purpose::Terminal
     }
 
     fn keys_area(&self) -> Rect {
@@ -423,6 +470,7 @@ impl Keyboard {
         self.layer = self.default_layer();
         self.shift = Shift::Off;
         self.shift_manual_off = false;
+        self.mods = Mods::default();
         self.rebuild();
         self.update_autoshift();
         self.actions.push(Action::Resize);
@@ -445,6 +493,10 @@ impl Keyboard {
         self.im_active = false;
         self.field = FieldInfo { purpose: Purpose::Terminal, no_completion: true, ..Default::default() };
         self.engine.set_field(self.field);
+        self.mods = Mods::default();
+        self.layer = self.default_layer();
+        self.rebuild();
+        self.actions.push(Action::Resize);
     }
 
     pub fn surrounding(&mut self, before: &str, after: &str, selection: bool) {
@@ -579,6 +631,15 @@ impl Keyboard {
         if self.search_key(action) {
             return;
         }
+        if self.mods.any() {
+            if let Some(key) = chord_key(action) {
+                let ops = self.engine.commit_composing();
+                self.push_ops(ops);
+                self.actions.push(Action::Chord(key, self.mods));
+                self.set_mods(Mods::default());
+                return;
+            }
+        }
         match action {
             KeyAction::Text(t) => self.type_text(&t.clone(), touch),
             KeyAction::Space => {
@@ -622,7 +683,16 @@ impl Keyboard {
             KeyAction::Down => self.nav(NavKey::Down),
             KeyAction::Home => self.nav(NavKey::Home),
             KeyAction::End => self.nav(NavKey::End),
+            KeyAction::Ctrl => self.set_mods(Mods { ctrl: !self.mods.ctrl, ..self.mods }),
+            KeyAction::Alt => self.set_mods(Mods { alt: !self.mods.alt, ..self.mods }),
             KeyAction::Gap => {}
+        }
+    }
+
+    fn set_mods(&mut self, m: Mods) {
+        if m != self.mods {
+            self.mods = m;
+            self.keys_rev += 1;
         }
     }
 
@@ -1171,6 +1241,12 @@ impl Keyboard {
                 }
                 TouchEvent::PopupMove { x, y } => self.popup_select(x, y),
                 TouchEvent::PopupCommit => self.popup_commit(),
+                TouchEvent::Repeat { key, count } if self.keys[key].def.action != KeyAction::Backspace => {
+                    if count > 1 {
+                        let action = self.keys[key].def.action.clone();
+                        self.activate_key_action(&action, None);
+                    }
+                }
                 TouchEvent::Repeat { count, .. } => {
                     // The first repeat event duplicates the press-activation.
                     if count > 1 {
@@ -1322,7 +1398,11 @@ impl Keyboard {
                     rect: g.visual,
                     label: self.key_label(&k.def),
                     hint: k.def.hint.clone().filter(|_| self.config.hints),
-                    style: k.def.style,
+                    style: match k.def.action {
+                        KeyAction::Ctrl if self.mods.ctrl => KeyStyle::Latched,
+                        KeyAction::Alt if self.mods.alt => KeyStyle::Latched,
+                        _ => k.def.style,
+                    },
                 })
                 .collect()
         };
@@ -1427,6 +1507,32 @@ enum StripTap {
     /// Finish the current word and append the emoji.
     WordEmoji(String),
     None,
+}
+
+/// The key a tap sends when Ctrl/Alt are latched (None: typed as usual).
+fn chord_key(a: &KeyAction) -> Option<ChordKey> {
+    Some(match a {
+        KeyAction::Text(t) => {
+            let mut it = t.chars();
+            let c = it.next()?;
+            if it.next().is_some() {
+                return None;
+            }
+            ChordKey::Char(c.to_lowercase().next().unwrap_or(c))
+        }
+        KeyAction::Space => ChordKey::Char(' '),
+        KeyAction::Backspace => ChordKey::Backspace,
+        KeyAction::Enter => ChordKey::Enter,
+        KeyAction::Tab => ChordKey::Nav(NavKey::Tab),
+        KeyAction::Escape => ChordKey::Nav(NavKey::Escape),
+        KeyAction::Left => ChordKey::Nav(NavKey::Left),
+        KeyAction::Right => ChordKey::Nav(NavKey::Right),
+        KeyAction::Up => ChordKey::Nav(NavKey::Up),
+        KeyAction::Down => ChordKey::Nav(NavKey::Down),
+        KeyAction::Home => ChordKey::Nav(NavKey::Home),
+        KeyAction::End => ChordKey::Nav(NavKey::End),
+        _ => return None,
+    })
 }
 
 fn json_str(s: &str) -> String {
@@ -1547,6 +1653,37 @@ mod tests {
         kb.touch_up(1, x - 60.0, y, 1200);
         let navs = kb.take_actions().into_iter().filter(|a| matches!(a, Action::Nav(NavKey::Left))).count();
         assert!(navs >= 3, "{navs}");
+    }
+
+    fn tap(kb: &mut Keyboard, name: &str, t: u32) -> Vec<Action> {
+        let (x, y) = center(kb, name);
+        kb.touch_down(1, x, y, t);
+        kb.touch_up(1, x, y, t + 40);
+        kb.take_actions()
+    }
+
+    #[test]
+    fn terminal_keys_send_chords() {
+        let mut kb = test_keyboard(&["en"]);
+        let has = |kb: &Keyboard, a: KeyAction| kb.keys.iter().any(|k| k.def.action == a);
+        assert!(!has(&kb, KeyAction::Ctrl), "no terminal row in normal fields");
+        kb.activate(FieldInfo { purpose: Purpose::Terminal, ..Default::default() });
+        kb.take_actions();
+        for a in [KeyAction::Escape, KeyAction::Tab, KeyAction::Ctrl, KeyAction::Alt, KeyAction::Left, KeyAction::Up] {
+            assert!(has(&kb, a.clone()), "{a:?}");
+        }
+        assert!(tap(&mut kb, "{escape}", 100).contains(&Action::Nav(NavKey::Escape)));
+        tap(&mut kb, "{ctrl}", 200);
+        let ctrl = kb.keys.iter().position(|k| k.def.action == KeyAction::Ctrl).unwrap();
+        assert_eq!(kb.view(300).keys[ctrl].style, KeyStyle::Latched);
+        let acts = tap(&mut kb, "c", 400);
+        assert!(acts.contains(&Action::Chord(ChordKey::Char('c'), Mods { ctrl: true, alt: false })), "{acts:?}");
+        assert_eq!(kb.view(500).keys[ctrl].style, KeyStyle::Function, "one-shot");
+        tap(&mut kb, "{alt}", 600);
+        let acts = tap(&mut kb, "{left}", 700);
+        assert!(acts.contains(&Action::Chord(ChordKey::Nav(NavKey::Left), Mods { ctrl: false, alt: true })), "{acts:?}");
+        let acts = tap(&mut kb, "c", 800);
+        assert!(acts.iter().any(|a| matches!(a, Action::Ops(_))), "typed normally again: {acts:?}");
     }
 }
 

@@ -39,6 +39,9 @@ pub enum KeyAction {
     Down,
     Home,
     End,
+    /// One-shot modifiers for the next key (terminal keys).
+    Ctrl,
+    Alt,
     Hide,
     /// Toggle one-handed mode.
     OneHanded,
@@ -65,6 +68,8 @@ impl KeyAction {
             "down" => KeyAction::Down,
             "home" => KeyAction::Home,
             "end" => KeyAction::End,
+            "ctrl" => KeyAction::Ctrl,
+            "alt" => KeyAction::Alt,
             "hide" => KeyAction::Hide,
             "onehand" => KeyAction::OneHanded,
             "gap" => KeyAction::Gap,
@@ -111,6 +116,8 @@ pub enum KeyStyle {
     Accent,
     Space,
     Invisible,
+    /// A modifier that is on for the next key.
+    Latched,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -16,6 +16,8 @@ pub enum KeyKind {
     Space,
     Backspace,
     Shift,
+    /// Arrow keys: activate on release, repeat while held.
+    Repeat,
     /// Everything else; activates on release.
     Other { popup: bool },
 }
@@ -244,7 +246,7 @@ impl TouchMachine {
                         p.deadline = Some(t + self.config.long_press_ms);
                     }
                 }
-                KeyKind::Backspace => p.deadline = Some(t + self.config.repeat_delay_ms),
+                KeyKind::Backspace | KeyKind::Repeat => p.deadline = Some(t + self.config.repeat_delay_ms),
                 KeyKind::Text { .. } | KeyKind::Other { .. } | KeyKind::Space => {
                     p.deadline = Some(t + self.config.long_press_ms)
                 }
@@ -443,7 +445,7 @@ impl TouchMachine {
             let p = &mut self.pointers[i];
             p.deadline = None;
             match (&p.mode, kind) {
-                (Mode::Tap, Some(KeyKind::Backspace)) | (Mode::Repeating { .. }, Some(KeyKind::Backspace)) => {
+                (Mode::Tap | Mode::Repeating { .. }, Some(KeyKind::Backspace | KeyKind::Repeat)) => {
                     let count = match p.mode {
                         Mode::Repeating { count } => count + 1,
                         _ => 1,
@@ -630,6 +632,21 @@ mod tests {
         let ev = m.up(1, 30);
         assert!(ev.contains(&TouchEvent::DeleteCommit { words: 2 }));
         assert!(activated(&ev).is_empty());
+    }
+
+    #[test]
+    fn repeat_keys_activate_on_tap_and_repeat_when_held() {
+        let mut m = machine(TouchConfig::default());
+        let (x, y) = center(&m, 0, 0);
+        let k = m.geometry().find(0, 0).unwrap();
+        m.kinds[k] = KeyKind::Repeat;
+        m.down(1, x, y, 0);
+        assert_eq!(activated(&m.up(1, 50)), vec![k]);
+        m.down(1, x, y, 100);
+        let ev = m.timer(500);
+        assert_eq!(activated(&ev), vec![k]);
+        assert!(m.timer(550).contains(&TouchEvent::Repeat { key: k, count: 2 }));
+        assert!(activated(&m.up(1, 560)).is_empty());
     }
 
     #[test]

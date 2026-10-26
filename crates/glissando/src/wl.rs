@@ -5,10 +5,10 @@
 use crate::clipboard;
 use glissando_config::{Config, ThemeMode};
 use crate::dbus::{self, Haptics, OskService};
-use crate::keyboard::{Action, Haptic, Keyboard};
+use crate::keyboard::{Action, ChordKey, Haptic, Keyboard, Mods};
 use crate::render::Renderer;
 use crate::theme::Theme;
-use crate::vk::{Keymap, VkKey};
+use crate::vk::{Keymap, VkKey, MOD_ALT, MOD_CTRL};
 use glissando_lang::engine::{FieldInfo, Key, Op, Purpose};
 use std::cell::RefCell;
 use std::io::Read;
@@ -508,12 +508,27 @@ impl App {
     }
 
     fn send_vk_key(&mut self, key: VkKey, mods: u32) {
+        let code = self.keymap.code(key);
+        self.send_vk_code(code, mods);
+    }
+
+    fn send_chord(&mut self, key: ChordKey, mods: Mods) {
+        let mask = if mods.ctrl { MOD_CTRL } else { 0 } | if mods.alt { MOD_ALT } else { 0 };
+        let code = match key {
+            ChordKey::Char(c) => self.keymap.char_code(c).0,
+            ChordKey::Nav(k) => self.keymap.code(k.into()),
+            ChordKey::Backspace => self.keymap.code(VkKey::BackSpace),
+            ChordKey::Enter => self.keymap.code(VkKey::Return),
+        };
+        self.send_vk_code(code, mask);
+    }
+
+    fn send_vk_code(&mut self, code: u32, mods: u32) {
         if self.vk.is_none() {
             return;
         }
         self.ensure_keymap();
         let Some(vk) = self.vk.as_ref() else { return };
-        let code = self.keymap.code(key);
         let t = self.now();
         if mods != 0 {
             vk.modifiers(mods, 0, 0, 0);
@@ -650,6 +665,10 @@ impl App {
                 Action::Nav(k) => {
                     dlog!("nav {k:?}");
                     self.send_vk_key(k.into(), 0)
+                }
+                Action::Chord(k, m) => {
+                    dlog!("chord {k:?} {m:?}");
+                    self.send_chord(k, m)
                 }
                 Action::Haptic(h) => self.haptics.vibrate(match h {
                     Haptic::Key => 1.0,

@@ -265,6 +265,8 @@ impl Renderer {
         match (style, pressed) {
             (KeyStyle::Accent, false) => (theme.accent, theme.on_accent),
             (KeyStyle::Accent, true) => (theme.accent_pressed, theme.on_accent),
+            (KeyStyle::Latched, false) => (theme.accent, theme.on_accent),
+            (KeyStyle::Latched, true) => (theme.accent_pressed, theme.on_accent),
             (KeyStyle::Function, false) => (theme.key_function, theme.label),
             (KeyStyle::Function, true) => (theme.key_function_pressed, theme.label),
             (_, false) => (theme.key, theme.label),

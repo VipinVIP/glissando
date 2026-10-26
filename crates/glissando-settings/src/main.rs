@@ -186,6 +186,7 @@ fn preferences_page(nav: &adw::NavigationView, state: &State) -> adw::Navigation
         tr("Keys"),
         &[
             switch(state, tr("Number row"), Some(tr("Always show digits above the letters")), |c| c.number_row, |c, v| c.number_row = v).upcast_ref(),
+            switch(state, tr("Terminal keys"), Some(tr("Esc, Tab, Ctrl, Alt and arrows above the letters in terminals")), |c| c.terminal_keys, |c, v| c.terminal_keys = v).upcast_ref(),
             switch(state, tr("Touch & hold for digits and symbols"), Some(tr("Show hints on letter keys")), |c| c.hints, |c, v| c.hints = v).upcast_ref(),
             switch(state, tr("Key pop-up"), Some(tr("Show the pressed key above the finger")), |c| c.key_popup, |c, v| c.key_popup = v).upcast_ref(),
             spin(state, tr("Touch & hold duration (ms)"), 150.0, 1000.0, 25.0, 0, |c| c.long_press_ms as f64, |c, v| c.long_press_ms = v as u32).upcast_ref(),

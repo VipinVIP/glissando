@@ -24,6 +24,8 @@ pub struct Config {
     pub height: f32,
     pub height_landscape: f32,
     pub number_row: bool,
+    /// Esc, Tab, Ctrl, Alt and arrow keys above the letters in terminals.
+    pub terminal_keys: bool,
     pub hints: bool,
     pub key_popup: bool,
     pub long_press_ms: u32,
@@ -88,6 +90,7 @@ impl Default for Config {
             height: 1.0,
             height_landscape: 1.0,
             number_row: false,
+            terminal_keys: true,
             hints: true,
             key_popup: true,
             long_press_ms: 300,
