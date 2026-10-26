@@ -308,6 +308,187 @@ fn clipboard_page(nav: &adw::NavigationView, state: &State) -> adw::NavigationPa
     page(nav, tr("Clipboard"), &[g])
 }
 
+/// Installed apps that appear in the launcher: (app id, name, icon). The id
+/// is what the window reports as its Wayland app_id: StartupWMClass when the
+/// desktop file sets it, otherwise the desktop file name.
+fn installed_apps() -> Vec<(String, String, Option<gtk::gio::Icon>)> {
+    let mut v: Vec<_> = gtk::gio::AppInfo::all()
+        .into_iter()
+        .filter(|a| a.should_show())
+        .filter_map(|a| {
+            let file_id = a.id()?.to_string();
+            let stem = file_id.strip_suffix(".desktop").unwrap_or(&file_id).to_string();
+            let kf = gtk::glib::KeyFile::new();
+            let wm_class = kf
+                .load_from_data_dirs(format!("applications/{file_id}"), gtk::glib::KeyFileFlags::NONE)
+                .ok()
+                .and_then(|_| kf.string("Desktop Entry", "StartupWMClass").ok())
+                .map(|s| s.to_string());
+            Some((wm_class.unwrap_or(stem), a.display_name().to_string(), a.icon()))
+        })
+        .collect();
+    v.sort_by_key(|a| a.1.to_lowercase());
+    v.dedup_by(|a, b| a.0 == b.0);
+    v
+}
+
+fn app_row(id: &str, apps: &[(String, String, Option<gtk::gio::Icon>)]) -> adw::ActionRow {
+    let row = adw::ActionRow::new();
+    let found = apps.iter().find(|a| a.0.eq_ignore_ascii_case(id));
+    row.set_title(&found.map(|a| a.1.clone()).unwrap_or_else(|| id.to_string()));
+    row.set_subtitle(id);
+    let icon = match found.and_then(|a| a.2.clone()) {
+        Some(i) => gtk::Image::from_gicon(&i),
+        None => gtk::Image::from_icon_name("application-x-executable-symbolic"),
+    };
+    icon.set_pixel_size(32);
+    row.add_prefix(&icon);
+    row
+}
+
+/// Stevia's list of apps without automatic keyboard, if it is installed.
+fn stevia_ignored_apps() -> Vec<String> {
+    let schema = "mobi.phosh.osk";
+    let has = gtk::gio::SettingsSchemaSource::default()
+        .and_then(|s| s.lookup(schema, true))
+        .map(|s| s.has_key("ignore-activation"))
+        .unwrap_or(false);
+    if !has {
+        return Vec::new();
+    }
+    gtk::gio::Settings::new(schema).strv("ignore-activation").iter().map(|s| s.to_string()).collect()
+}
+
+fn add_blocked_app(state: &State, id: &str) {
+    let id = id.trim();
+    if id.is_empty() || state.borrow().auto_show_blocked(id) {
+        return;
+    }
+    state.borrow_mut().no_auto_show.push(id.to_string());
+    save(state);
+}
+
+fn fill_blocked_list(list: &adw::PreferencesGroup, rows: &Rc<RefCell<Vec<adw::ActionRow>>>, state: &State) {
+    for r in rows.borrow_mut().drain(..) {
+        list.remove(&r);
+    }
+    let apps = installed_apps();
+    for id in state.borrow().no_auto_show.clone() {
+        let row = app_row(&id, &apps);
+        let del = gtk::Button::from_icon_name("user-trash-symbolic");
+        del.set_valign(gtk::Align::Center);
+        del.add_css_class("flat");
+        del.set_tooltip_text(Some(tr("Remove")));
+        let (st, l, rs) = (state.clone(), list.clone(), rows.clone());
+        del.connect_clicked(move |_| {
+            st.borrow_mut().no_auto_show.retain(|a| *a != id);
+            save(&st);
+            fill_blocked_list(&l, &rs, &st);
+        });
+        row.add_suffix(&del);
+        list.add(&row);
+        rows.borrow_mut().push(row);
+    }
+}
+
+/// Picker with all installed apps; tapping one adds it to the list.
+fn app_picker_page(state: &State, on_added: Rc<dyn Fn()>) -> adw::NavigationPage {
+    let search = gtk::SearchEntry::new();
+    search.set_margin_start(12);
+    search.set_margin_end(12);
+    search.set_margin_top(6);
+    search.set_margin_bottom(6);
+    let list = gtk::ListBox::new();
+    list.add_css_class("boxed-list");
+    list.set_selection_mode(gtk::SelectionMode::None);
+    list.set_margin_start(12);
+    list.set_margin_end(12);
+    list.set_margin_bottom(12);
+    list.set_valign(gtk::Align::Start);
+    let page_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_vexpand(true);
+    scroll.set_child(Some(&list));
+    page_box.append(&search);
+    page_box.append(&scroll);
+    let tv = adw::ToolbarView::new();
+    tv.add_top_bar(&adw::HeaderBar::new());
+    tv.set_content(Some(&page_box));
+    let page = adw::NavigationPage::new(&tv, tr("Add app"));
+    let apps = installed_apps();
+    let mut rows = Vec::new();
+    for (id, name, _) in &apps {
+        let row = app_row(id, &apps);
+        row.set_activatable(true);
+        let (st, cb, app, p) = (state.clone(), on_added.clone(), id.clone(), page.clone());
+        row.connect_activated(move |_| {
+            add_blocked_app(&st, &app);
+            cb();
+            if let Some(nav) = p.parent().and_then(|w| w.downcast::<adw::NavigationView>().ok()) {
+                nav.pop();
+            }
+        });
+        list.append(&row);
+        rows.push((row, format!("{} {}", name.to_lowercase(), id.to_lowercase())));
+    }
+    search.connect_search_changed(move |e| {
+        let q = e.text().to_lowercase();
+        for (row, key) in &rows {
+            row.set_visible(q.is_empty() || key.contains(q.as_str()));
+        }
+    });
+    page
+}
+
+fn apps_page(nav: &adw::NavigationView, state: &State) -> adw::NavigationPage {
+    let list = adw::PreferencesGroup::new();
+    list.set_title(tr("Don't open automatically in"));
+    list.set_description(Some(tr(
+        "In these apps the keyboard does not appear when a text field gets focus, for example in a calculator with its own keypad. It can still be opened from the bottom bar.",
+    )));
+    let rows: Rc<RefCell<Vec<adw::ActionRow>>> = Rc::new(RefCell::new(Vec::new()));
+    fill_blocked_list(&list, &rows, state);
+    let refresh: Rc<dyn Fn()> = {
+        let (l, r, s) = (list.clone(), rows.clone(), state.clone());
+        Rc::new(move || fill_blocked_list(&l, &r, &s))
+    };
+    let add = adw::ActionRow::new();
+    add.set_title(tr("Add app"));
+    add.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
+    add.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    add.set_activatable(true);
+    let (n, st, cb) = (nav.clone(), state.clone(), refresh.clone());
+    add.connect_activated(move |_| n.push(&app_picker_page(&st, cb.clone())));
+    let manual = adw::EntryRow::new();
+    manual.set_title(tr("Add by app ID"));
+    manual.set_show_apply_button(true);
+    let (st, cb) = (state.clone(), refresh.clone());
+    manual.connect_apply(move |e| {
+        add_blocked_app(&st, &e.text());
+        e.set_text("");
+        cb();
+    });
+    let mut actions: Vec<&gtk::Widget> = vec![add.upcast_ref(), manual.upcast_ref()];
+    let import = adw::ActionRow::new();
+    let stevia = stevia_ignored_apps();
+    if !stevia.is_empty() {
+        import.set_title(tr("Import from the Phosh keyboard (Stevia)"));
+        import.set_subtitle(&stevia.join(", "));
+        let btn = gtk::Button::with_label(tr("Import"));
+        btn.set_valign(gtk::Align::Center);
+        import.add_suffix(&btn);
+        let (st, cb) = (state.clone(), refresh.clone());
+        btn.connect_clicked(move |_| {
+            for id in &stevia {
+                add_blocked_app(&st, id);
+            }
+            cb();
+        });
+        actions.push(import.upcast_ref());
+    }
+    page(nav, tr("Apps"), &[list, group("", &actions)])
+}
+
 fn bump_dict_epoch(state: &State) {
     state.borrow_mut().user_dict_epoch += 1;
     save(state);
@@ -468,6 +649,7 @@ fn build(app: &adw::Application) {
         (tr("Text correction"), tr("Suggestions, auto-correction, capitalization"), "tools-check-spelling-symbolic", correction_page(&nav, &state)),
         (tr("Glide typing"), tr("Gestures and trail"), "input-touchpad-symbolic", glide_page(&nav, &state)),
         (tr("Clipboard"), tr("History and retention"), "edit-paste-symbolic", clipboard_page(&nav, &state)),
+        (tr("Apps"), tr("Where the keyboard does not open by itself"), "view-app-grid-symbolic", apps_page(&nav, &state)),
         (tr("Privacy & dictionary"), tr("Learned words, delete data"), "security-high-symbolic", privacy_page(&nav, &state, &window)),
         (tr("About"), tr("Version and licences"), "help-about-symbolic", about_page(&nav)),
     ];

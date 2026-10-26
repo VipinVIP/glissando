@@ -1,6 +1,6 @@
 //! Test helpers for end-to-end runs in a nested/headless compositor.
 //!
-//! * `textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt]` – a
+//! * `textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt] [--app-id ID]` – a
 //!   window with a text-input-v3 field that behaves like a well-behaved
 //!   toolkit: it applies preedit/commit/delete events, reports surrounding
 //!   text and also accepts virtual keyboard keys. A click commits the
@@ -357,6 +357,7 @@ fn textclient(args: &[String]) {
     let mut hint = zwp_text_input_v3::ContentHint::empty();
     let mut state_file = None;
     let mut send_cause = true;
+    let mut app_id = "glissando-textclient".to_string();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -392,6 +393,10 @@ fn textclient(args: &[String]) {
                 i += 1;
                 send_cause = args[i] != "qt";
             }
+            "--app-id" => {
+                i += 1;
+                app_id = args[i].clone();
+            }
             _ => {}
         }
         i += 1;
@@ -409,6 +414,7 @@ fn textclient(args: &[String]) {
     let xs = wm.get_xdg_surface(&surface, &qh, ());
     let top = xs.get_toplevel(&qh, ());
     top.set_title("glissando-textclient".into());
+    top.set_app_id(app_id);
     surface.commit();
     let mut c = Client {
         ti: Some(ti),
@@ -597,7 +603,7 @@ fn main() {
             pointer(&args[2..].join(" "), extent)
         }
         _ => {
-            eprintln!("usage: glissando-testkit textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt] | pointer SCRIPT");
+            eprintln!("usage: glissando-testkit textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt] [--app-id ID] | pointer SCRIPT");
             std::process::exit(2);
         }
     }

@@ -19,7 +19,8 @@ if LANDSCAPE:
 
 
 class Session:
-    def __init__(self, args, purpose=None, hint=None, config=None, kb_args=(), toolkit=None):
+    def __init__(self, args, purpose=None, hint=None, config=None, kb_args=(), toolkit=None, app_id=None,
+                 expect_keyboard=True):
         self.args = args
         self.tmp = tempfile.mkdtemp(prefix="glissando-e2e-")
         self.env = dict(os.environ)
@@ -76,7 +77,11 @@ class Session:
             tc += ["--hint", hint]
         if toolkit:
             tc += ["--toolkit", toolkit]
+        if app_id:
+            tc += ["--app-id", app_id]
         self.spawn("tc", tc)
+        if not expect_keyboard:
+            return
         self.wait(lambda: os.path.exists(self.geom_file) and self.surface_height() > 0, "keyboard surface")
         time.sleep(0.3)
 
@@ -227,7 +232,7 @@ def backspace_and_symbols(s):
 def click_moves_cursor_to_start(s):
     s.type("good hel")
     s.wait(lambda: s.state()["text"] == "Good " and s.state()["preedit"] == "hel", "word being composed")
-    s.pointer(f"tap {OUT_W // 2} 40")  # click into the text field
+    s.pointer("tap 60 40")  # click into the text field
     s.wait(lambda: s.state()["text"] == "Good hel" and s.state()["cursor"] == 0, "preedit committed, cursor moved")
     s.type("x ")
     # Before the fix "hel" continued at the new position ("helx ...").
@@ -258,6 +263,22 @@ def terminal_keys(s):
     s.wait(lambda: s.state()["text"] == "ls<C-c><A-Left><Esc>", "keys with modifiers")
     s.screenshot("terminal")
 terminal_keys.purpose = "terminal"
+
+
+@test
+def no_auto_show_in_listed_apps(s):
+    pass
+
+
+def run_no_auto_show(args):
+    s = Session(args, config='no_auto_show = ["org.example.Calc"]\n', app_id="org.example.Calc", expect_keyboard=False)
+    try:
+        s.wait(lambda: 'active app Some("org.example.Calc")' in s.log("kb") and "activate" in s.log("kb"),
+               "focused field in the listed app")
+        time.sleep(0.5)
+        assert "surface created" not in s.log("kb"), "keyboard opened in a listed app"
+    finally:
+        s.close()
 
 
 @test
@@ -447,6 +468,8 @@ def main():
         try:
             if t.__name__ == "password_field_is_private":
                 run_password(args)
+            elif t.__name__ == "no_auto_show_in_listed_apps":
+                run_no_auto_show(args)
             else:
                 s = Session(args, config=getattr(t, "config", None), toolkit=getattr(t, "toolkit", None),
                             purpose=getattr(t, "purpose", None))

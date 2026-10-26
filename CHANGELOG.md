@@ -10,6 +10,8 @@
 - Terminal keys: Esc, Tab, Ctrl, Alt and arrows above the letters in
   terminals (and when typing without an input-method client); Ctrl and Alt
   apply to the next key, arrows repeat while held
+- Apps where the keyboard does not open by itself (Calculator by default),
+  with a settings page to pick installed apps and import Stevia's list
 
 ## 0.1.0 – first preview
 

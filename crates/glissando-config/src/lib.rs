@@ -55,6 +55,9 @@ pub struct Config {
     pub emoji_suggestions: bool,
     /// Show the microphone button when a local speech model is installed.
     pub voice: bool,
+    /// App ids (Wayland app_id / desktop file name) in which the keyboard
+    /// does not open by itself when a text field gets focus.
+    pub no_auto_show: Vec<String>,
     /// Bumped by the settings app after deleting personal data; the running
     /// keyboard drops its in-memory copies when it changes.
     pub user_data_epoch: u64,
@@ -116,6 +119,7 @@ impl Default for Config {
             emoji_recent: true,
             emoji_suggestions: true,
             voice: true,
+            no_auto_show: vec!["org.gnome.Calculator".into()],
             user_data_epoch: 0,
             user_dict_epoch: 0,
         }
@@ -160,6 +164,13 @@ pub fn find_resource(rel: &str) -> Option<PathBuf> {
 }
 
 impl Config {
+    /// Should the keyboard stay closed on focus in this app?
+    pub fn auto_show_blocked(&self, app_id: &str) -> bool {
+        let id = app_id.strip_suffix(".desktop").unwrap_or(app_id);
+        !id.is_empty()
+            && self.no_auto_show.iter().any(|a| a.strip_suffix(".desktop").unwrap_or(a).eq_ignore_ascii_case(id))
+    }
+
     pub fn path() -> PathBuf {
         std::env::var_os("GLISSANDO_CONFIG").map(PathBuf::from).unwrap_or_else(|| config_dir().join("config.toml"))
     }
@@ -218,5 +229,15 @@ mod tests {
         let s = toml::to_string_pretty(&c).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
         assert_eq!(back, c);
+    }
+
+    #[test]
+    fn auto_show_block_list() {
+        let mut c = Config::default();
+        assert!(c.auto_show_blocked("org.gnome.Calculator"));
+        c.no_auto_show.push("Pix.desktop".into());
+        assert!(c.auto_show_blocked("pix"));
+        assert!(!c.auto_show_blocked("org.gnome.Console"));
+        assert!(!c.auto_show_blocked(""));
     }
 }

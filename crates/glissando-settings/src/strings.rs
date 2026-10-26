@@ -99,6 +99,15 @@ const RU: &[(&str, &str)] = &[
     ("Voice typing", "Голосовой ввод"),
     ("Local speech recognition with whisper.cpp; audio never leaves the device", "Локальное распознавание речи whisper.cpp; звук не покидает устройство"),
     ("Personal data", "Личные данные"),
+    ("Apps", "Приложения"),
+    ("Where the keyboard does not open by itself", "Где клавиатура не открывается сама"),
+    ("Don't open automatically in", "Не открывать автоматически в"),
+    ("In these apps the keyboard does not appear when a text field gets focus, for example in a calculator with its own keypad. It can still be opened from the bottom bar.", "В этих приложениях клавиатура не появляется при выборе текстового поля — например, в калькуляторе со своими кнопками. Её по-прежнему можно открыть с нижней панели."),
+    ("Add app", "Добавить приложение"),
+    ("Add by app ID", "Добавить по ID приложения"),
+    ("Import from the Phosh keyboard (Stevia)", "Импорт из клавиатуры Phosh (Stevia)"),
+    ("Import", "Импорт"),
+    ("Remove", "Удалить"),
 ];
 
 const DE: &[(&str, &str)] = &[
@@ -148,6 +157,15 @@ const DE: &[(&str, &str)] = &[
     ("About", "Info"),
     ("Version", "Version"),
     ("Voice typing", "Spracheingabe"),
+    ("Apps", "Apps"),
+    ("Where the keyboard does not open by itself", "Wo sich die Tastatur nicht selbst öffnet"),
+    ("Don't open automatically in", "Nicht automatisch öffnen in"),
+    ("In these apps the keyboard does not appear when a text field gets focus, for example in a calculator with its own keypad. It can still be opened from the bottom bar.", "In diesen Apps erscheint die Tastatur nicht, wenn ein Textfeld den Fokus erhält, etwa in einem Taschenrechner mit eigenen Tasten. Über die untere Leiste lässt sie sich weiterhin öffnen."),
+    ("Add app", "App hinzufügen"),
+    ("Add by app ID", "Über App-ID hinzufügen"),
+    ("Import from the Phosh keyboard (Stevia)", "Aus der Phosh-Tastatur (Stevia) übernehmen"),
+    ("Import", "Übernehmen"),
+    ("Remove", "Entfernen"),
 ];
 
 fn table() -> Option<&'static HashMap<&'static str, &'static str>> {

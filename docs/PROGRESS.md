@@ -35,6 +35,9 @@ verified only partially (see note) · ⬜ not started.
 * 🟡 emoji search (query in the strip, typed or glided) and emoji suggestions while typing — builds, unit tests pass, no dedicated e2e test yet
 * ✅ local voice typing (glissando-voice + whisper.cpp), e2e `voice_input`, pipeline verified on the phone with a recorded sample
 * ✅ landscape: row-pitch normalised touch model, lower rows; full e2e suite passes with `E2E_LANDSCAPE=1`; ⬜ split layout
+* ✅ terminal keys (Esc, Tab, Ctrl, Alt, arrows) for terminal fields, e2e `terminal_keys`
+* ✅ apps without automatic showing (wlr-foreign-toplevel app_id), settings page, e2e `no_auto_show_in_listed_apps`; 🟡 Stevia import only checked against its schema, not on the device
+* ✅ editing in clients without a text change cause (Qt): edits detected from the text, e2e `editing_with_cursor_moves_qt`; 🟡 not yet tried with real Qt/Chromium apps on the device
 
 ## Stage 6 – performance
 * measured on device: key frame ~1 ms, cached shift ~2 ms, glide decode p50 2.5 ms (big core); ✅ shift states pre-rendered; ⬜ partial damage

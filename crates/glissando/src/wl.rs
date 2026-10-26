@@ -31,6 +31,7 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboa
 use wayland_protocols_wlr::data_control::v1::client::{
     zwlr_data_control_device_v1, zwlr_data_control_manager_v1, zwlr_data_control_offer_v1,
 };
+use wayland_protocols_wlr::foreign_toplevel::v1::client::{zwlr_foreign_toplevel_handle_v1, zwlr_foreign_toplevel_manager_v1};
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 
 fn debug() -> bool {
@@ -60,6 +61,15 @@ impl Default for ImState {
     fn default() -> Self {
         ImState { active: false, surrounding: None, hint: ContentHint::empty(), purpose: None }
     }
+}
+
+/// A window as seen through wlr-foreign-toplevel (pending values until `done`).
+struct Toplevel {
+    handle: zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1,
+    app_id: String,
+    activated: bool,
+    pending_app_id: Option<String>,
+    pending_activated: Option<bool>,
 }
 
 struct SurfaceState {
@@ -103,6 +113,10 @@ pub struct App {
     data_device: Option<zwlr_data_control_device_v1::ZwlrDataControlDeviceV1>,
     _data_control: Option<zwlr_data_control_manager_v1::ZwlrDataControlManagerV1>,
     outputs: Vec<(wl_output::WlOutput, i32)>,
+    _toplevel_manager: Option<zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1>,
+    toplevels: Vec<Toplevel>,
+    /// app_id of the focused window, when the compositor tells us.
+    active_app: Option<String>,
     surface: Option<SurfaceState>,
     pub kb: Keyboard,
     renderer: Renderer,
@@ -183,7 +197,23 @@ impl App {
     // ---- visibility ----------------------------------------------------------
 
     fn want_visible(&self) -> bool {
-        self.forced_visible || (self.im_current.active && self.auto_show && !self.user_hidden)
+        self.forced_visible || (self.im_current.active && self.auto_show && !self.user_hidden && !self.app_blocked())
+    }
+
+    /// The focused app is on the user's list of apps where the keyboard
+    /// opens only on request (e.g. a calculator with its own keypad).
+    fn app_blocked(&self) -> bool {
+        self.active_app.as_deref().map(|a| self.kb.config.auto_show_blocked(a)).unwrap_or(false)
+    }
+
+    fn toplevels_changed(&mut self) {
+        let active = self.toplevels.iter().find(|t| t.activated).map(|t| t.app_id.clone());
+        if active != self.active_app {
+            dlog!("active app {active:?}");
+            self.active_app = active;
+            self.update_visibility();
+            self.flush();
+        }
     }
 
     fn update_visibility(&mut self) {
@@ -933,6 +963,8 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
     let viewporter: Option<wp_viewporter::WpViewporter> = globals.bind(&qh, 1..=1, ()).ok();
     let fractional: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
     let data_control: Option<zwlr_data_control_manager_v1::ZwlrDataControlManagerV1> = globals.bind(&qh, 1..=2, ()).ok();
+    let toplevel_manager: Option<zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1> =
+        globals.bind(&qh, 1..=3, ()).ok();
     let mut outputs = Vec::new();
     for g in globals.contents().clone_list() {
         if g.interface == wl_output::WlOutput::interface().name {
@@ -981,6 +1013,9 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
         data_device,
         _data_control: data_control,
         outputs,
+        _toplevel_manager: toplevel_manager,
+        toplevels: Vec::new(),
+        active_app: None,
         surface: None,
         renderer: Renderer::new(&config.font),
         kb,
@@ -1371,6 +1406,60 @@ impl Dispatch<zwlr_data_control_offer_v1::ZwlrDataControlOfferV1, Mutex<Vec<Stri
     fn event(_: &mut Self, _: &zwlr_data_control_offer_v1::ZwlrDataControlOfferV1, e: zwlr_data_control_offer_v1::Event, mimes: &Mutex<Vec<String>>, _: &Connection, _: &QueueHandle<Self>) {
         if let zwlr_data_control_offer_v1::Event::Offer { mime_type } = e {
             mimes.lock().unwrap().push(mime_type);
+        }
+    }
+}
+
+impl Dispatch<zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1, ()> for App {
+    fn event(app: &mut Self, _: &zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1, e: zwlr_foreign_toplevel_manager_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match e {
+            zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } => app.toplevels.push(Toplevel {
+                handle: toplevel,
+                app_id: String::new(),
+                activated: false,
+                pending_app_id: None,
+                pending_activated: None,
+            }),
+            zwlr_foreign_toplevel_manager_v1::Event::Finished => {
+                app.toplevels.clear();
+                app.toplevels_changed();
+            }
+            _ => {}
+        }
+    }
+
+    wayland_client::event_created_child!(App, zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1, [
+        zwlr_foreign_toplevel_manager_v1::EVT_TOPLEVEL_OPCODE => (zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1, ()),
+    ]);
+}
+
+impl Dispatch<zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1, ()> for App {
+    fn event(app: &mut Self, h: &zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1, e: zwlr_foreign_toplevel_handle_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        use zwlr_foreign_toplevel_handle_v1::{Event, State};
+        let Some(i) = app.toplevels.iter().position(|t| &t.handle == h) else { return };
+        match e {
+            Event::AppId { app_id } => app.toplevels[i].pending_app_id = Some(app_id),
+            Event::State { state } => {
+                let activated = state
+                    .chunks_exact(4)
+                    .any(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]) == State::Activated as u32);
+                app.toplevels[i].pending_activated = Some(activated);
+            }
+            Event::Done => {
+                let t = &mut app.toplevels[i];
+                if let Some(a) = t.pending_app_id.take() {
+                    t.app_id = a;
+                }
+                if let Some(a) = t.pending_activated.take() {
+                    t.activated = a;
+                }
+                app.toplevels_changed();
+            }
+            Event::Closed => {
+                app.toplevels.remove(i).handle.destroy();
+                app.toplevels_changed();
+            }
+            _ => {}
         }
     }
 }
