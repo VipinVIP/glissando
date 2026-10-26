@@ -18,6 +18,10 @@ use glissando_lang::model::{logf, Language};
 use std::collections::HashMap;
 
 pub const RESAMPLE: usize = 48;
+/// Candidates that get the full (expensive) score.
+const STAGE2: usize = 120;
+/// Candidates that get the alignment score.
+const STAGE1: usize = 700;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pt {
@@ -68,6 +72,18 @@ impl KeyMap {
         self.keys.len()
     }
 
+    /// Distinct key positions (letters sharing a key appear once).
+    pub fn distinct_positions(&self) -> Vec<Pt> {
+        let mut v: Vec<Pt> = Vec::new();
+        for p in self.keys.values() {
+            if !v.iter().any(|q| q.d(*p) < 1e-3) {
+                v.push(*p);
+            }
+        }
+        v.sort_by(|a, b| (a.y, a.x).partial_cmp(&(b.y, b.x)).unwrap());
+        v
+    }
+
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
@@ -80,6 +96,7 @@ pub struct GestureCandidate {
     pub lang: usize,
 }
 
+#[derive(Debug, Clone)]
 pub struct DecodeParams {
     /// Radius around a key centre that counts as passing the key.
     pub pass_radius: f32,
@@ -87,11 +104,69 @@ pub struct DecodeParams {
     pub end_radius: f32,
     pub max_results: usize,
     pub max_expansions: usize,
+    pub w_align: f32,
+    pub w_loc: f32,
+    pub w_shape: f32,
+    pub w_len: f32,
+    /// Weight of the geometric cost against the language score.
+    pub w_geom: f32,
+    /// Penalty for words with apostrophes/hyphens (rarely glided).
+    pub punct_penalty: f32,
+    /// Weight of the squared distance between the first/last letter and the gesture ends.
+    pub w_ends: f32,
+    /// Penalty for all-caps words (acronyms are rarely glided).
+    pub caps_penalty: f32,
+    /// Fingers land slightly below key centres; the trace is shifted up by this (kw).
+    pub y_offset: f32,
+    /// Weight of finger speed at inner letters (needs timestamps).
+    pub w_slow: f32,
 }
 
 impl Default for DecodeParams {
+    /// Tuned on the FUTO swipe dev split (real gestures); see docs/ARCHITECTURE.md.
     fn default() -> Self {
-        DecodeParams { pass_radius: 0.95, end_radius: 1.35, max_results: 8, max_expansions: 400_000 }
+        DecodeParams {
+            pass_radius: 1.3,
+            end_radius: 1.7,
+            max_results: 8,
+            max_expansions: 400_000,
+            w_align: 2.4,
+            w_loc: 1.3,
+            w_shape: 1.6,
+            w_len: 2.0,
+            w_geom: 3.5,
+            punct_penalty: 3.0,
+            w_ends: 0.5,
+            caps_penalty: 3.0,
+            y_offset: 0.1,
+            w_slow: 0.0,
+        }
+    }
+}
+
+impl DecodeParams {
+    /// Override parameters from a `name=value,...` string (tuning tools).
+    pub fn with_overrides(mut self, spec: &str) -> DecodeParams {
+        for kv in spec.split(',').filter(|s| !s.is_empty()) {
+            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Ok(v) = v.parse::<f32>() else { continue };
+            match k {
+                "pass" => self.pass_radius = v,
+                "end" => self.end_radius = v,
+                "align" => self.w_align = v,
+                "loc" => self.w_loc = v,
+                "shape" => self.w_shape = v,
+                "len" => self.w_len = v,
+                "geom" => self.w_geom = v,
+                "punct" => self.punct_penalty = v,
+                "ends" => self.w_ends = v,
+                "caps" => self.caps_penalty = v,
+                "yoff" => self.y_offset = v,
+                "slow" => self.w_slow = v,
+                _ => {}
+            }
+        }
+        self
     }
 }
 
@@ -170,8 +245,28 @@ pub fn clean_trace(raw: &[(f32, f32)], min_step: f32) -> Vec<Pt> {
     out
 }
 
+/// Like [`clean_trace`] but keeps the timestamps of the retained points.
+pub fn clean_trace_timed(raw: &[(f32, f32, f32)], min_step: f32) -> (Vec<Pt>, Vec<f32>) {
+    let mut pts: Vec<Pt> = Vec::with_capacity(raw.len());
+    let mut ts: Vec<f32> = Vec::with_capacity(raw.len());
+    for (i, &(x, y, t)) in raw.iter().enumerate() {
+        let p = Pt { x, y };
+        let last = i + 1 == raw.len();
+        if pts.last().map(|l| l.d(p) >= min_step).unwrap_or(true) || (last && pts.last() != Some(&p)) {
+            pts.push(p);
+            ts.push(t);
+        } else if let Some(lt) = ts.last_mut() {
+            // Dwelling: keep the latest time for the retained point.
+            *lt = t;
+        }
+    }
+    (pts, ts)
+}
+
 struct Prepared {
     path: Vec<Pt>,
+    /// Relative finger speed at each resampled point (1 = median), 1 if unknown.
+    speed: Vec<f32>,
     norm: Vec<Pt>,
     start: Pt,
     end: Pt,
@@ -194,8 +289,52 @@ fn word_keys(word: &str, keys: &KeyMap) -> Option<Vec<Pt>> {
     Some(v)
 }
 
-/// Monotonic alignment of letters to path points: mean squared distance.
-fn alignment_cost(letters: &[Pt], path: &[Pt]) -> f32 {
+/// Time at each of `n` equidistant arc-length positions.
+fn resample_times(points: &[Pt], times: &[f32], n: usize) -> Vec<f32> {
+    let mut cum = Vec::with_capacity(points.len());
+    let mut acc = 0.0;
+    cum.push(0.0);
+    for w in points.windows(2) {
+        acc += w[0].d(w[1]);
+        cum.push(acc);
+    }
+    let total = acc.max(1e-6);
+    let mut out = Vec::with_capacity(n);
+    let mut j = 0;
+    for k in 0..n {
+        let s = total * k as f32 / (n - 1) as f32;
+        while j + 1 < cum.len() - 1 && cum[j + 1] < s {
+            j += 1;
+        }
+        let (s0, s1) = (cum[j], cum[(j + 1).min(cum.len() - 1)]);
+        let (t0, t1) = (times[j], times[(j + 1).min(times.len() - 1)]);
+        let f = if s1 > s0 { ((s - s0) / (s1 - s0)).clamp(0.0, 1.0) } else { 0.0 };
+        out.push(t0 + (t1 - t0) * f);
+    }
+    out
+}
+
+/// Relative speed per resampled point from resampled times (equal spacing:
+/// speed is inversely proportional to the time step).
+fn relative_speed(t: &[f32]) -> Vec<f32> {
+    let n = t.len();
+    let dts: Vec<f32> = (0..n)
+        .map(|i| {
+            let a = t[i.saturating_sub(1)];
+            let b = t[(i + 1).min(n - 1)];
+            (b - a).max(0.5)
+        })
+        .collect();
+    let mut sorted = dts.clone();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let med = sorted[n / 2].max(0.5);
+    dts.iter().map(|dt| (med / dt).clamp(0.0, 3.0)).collect()
+}
+
+/// Monotonic alignment of letters to path points: mean squared distance,
+/// plus `slow_w` times the relative speed where inner letters are placed
+/// (letters are usually where the finger slows down or turns).
+fn alignment_cost(letters: &[Pt], path: &[Pt], speed: &[f32], slow_w: f32) -> f32 {
     let n = path.len();
     let l = letters.len();
     if l == 0 {
@@ -214,7 +353,8 @@ fn alignment_cost(letters: &[Pt], path: &[Pt]) -> f32 {
             best = best.min(prev[i]);
             if best < f32::MAX {
                 let d = letters[k].d(path[i]);
-                cur[i] = best + d * d;
+                let sp = if k + 1 < l { slow_w * speed[i] } else { 0.0 };
+                cur[i] = best + d * d + sp;
             }
         }
         prev = cur;
@@ -235,33 +375,50 @@ impl Default for ShapeDecoder {
 }
 
 impl ShapeDecoder {
-    fn prepare(&self, trace: &[Pt]) -> Option<Prepared> {
+    fn prepare(&self, trace: &[Pt], times: Option<&[f32]>) -> Option<Prepared> {
         if trace.len() < 2 {
             return None;
         }
+        let shifted: Vec<Pt>;
+        let trace = if self.params.y_offset != 0.0 {
+            shifted = trace.iter().map(|p| Pt { x: p.x, y: p.y - self.params.y_offset }).collect();
+            &shifted[..]
+        } else {
+            trace
+        };
         let length: f32 = trace.windows(2).map(|w| w[0].d(w[1])).sum();
         let path = resample(trace, RESAMPLE);
+        let speed = match times {
+            Some(t) if t.len() == trace.len() && t.last() > t.first() => relative_speed(&resample_times(trace, t, RESAMPLE)),
+            _ => vec![1.0; RESAMPLE],
+        };
         let norm = normalize(&path);
-        Some(Prepared { start: trace[0], end: *trace.last().unwrap(), path, norm, length })
+        Some(Prepared { start: trace[0], end: *trace.last().unwrap(), path, speed, norm, length })
     }
 
     /// Words whose letters the gesture visits in order, from one dictionary.
     fn feasible(&self, dict: &Dict, keys: &KeyMap, g: &Prepared, out: &mut Vec<(u32, u8)>) {
         let r = self.params.pass_radius;
         let path = &g.path;
-        // Precompute, per key position, the path indices within radius.
-        let mut near_cache: HashMap<(i32, i32), Vec<bool>> = HashMap::new();
-        let mut near = |p: Pt| -> Vec<bool> {
-            let k = ((p.x * 100.0) as i32, (p.y * 100.0) as i32);
-            near_cache.entry(k).or_insert_with(|| path.iter().map(|q| q.d(p) <= r).collect()).clone()
-        };
-        // DFS state: node, next usable path index, last key position.
+        let n = path.len();
+        // next[k][i]: first path index >= i that passes within `r` of key k (n = never).
+        let key_list: Vec<Pt> = keys.distinct_positions();
+        let mut next: Vec<Vec<u8>> = Vec::with_capacity(key_list.len());
+        for kp in &key_list {
+            let mut v = vec![n as u8; n + 1];
+            for i in (0..n).rev() {
+                v[i] = if path[i].d(*kp) <= r { i as u8 } else { v[i + 1] };
+            }
+            next.push(v);
+        }
+        let key_index = |p: Pt| key_list.iter().position(|q| q.d(p) < 1e-3);
+        // DFS state: node, next usable path index, last key index, depth.
         let root = dict.node(0);
-        let mut stack: Vec<(u32, usize, Option<Pt>, u8)> = Vec::new();
+        let mut stack: Vec<(u32, u8, Option<usize>, u8)> = Vec::new();
         for (cid, child) in dict.children(&root) {
             if let Some(p) = keys.pos(child.ch) {
                 if p.d(g.start) <= self.params.end_radius {
-                    stack.push((cid, 0, Some(p), 1));
+                    stack.push((cid, 0, key_index(p), 1));
                 }
             }
         }
@@ -273,8 +430,8 @@ impl ShapeDecoder {
             }
             let node = dict.node(id);
             if node.freq > 0 && depth >= 2 {
-                if let Some(lp) = last {
-                    if lp.d(g.end) <= self.params.end_radius {
+                if let Some(lk) = last {
+                    if key_list[lk].d(g.end) <= self.params.end_radius {
                         out.push((id, node.freq));
                     }
                 }
@@ -291,27 +448,39 @@ impl ShapeDecoder {
                     continue;
                 }
                 let Some(p) = keys.pos(child.ch) else { continue };
-                if last.map(|l| l.d(p) < 1e-3).unwrap_or(false) {
+                let Some(k) = key_index(p) else { continue };
+                if last == Some(k) {
                     // Double letter: same key, same place on the path.
                     stack.push((cid, idx, last, depth + 1));
                     continue;
                 }
-                let nm = near(p);
-                if let Some(j) = (idx..path.len()).find(|&j| nm[j]) {
-                    stack.push((cid, j, Some(p), depth + 1));
+                let j = next[k][idx as usize];
+                if (j as usize) < n {
+                    stack.push((cid, j, Some(k), depth + 1));
                 }
             }
         }
+    }
+
+    /// Cheap pre-score used to pick candidates for full scoring.
+    fn quick_cost(&self, letters: &[Pt], g: &Prepared) -> f32 {
+        let p = &self.params;
+        let ends = letters[0].d(g.start).powi(2) + letters[letters.len() - 1].d(g.end).powi(2);
+        let tlen: f32 = letters.windows(2).map(|w| w[0].d(w[1])).sum();
+        let len_pen = ((g.length - tlen).abs() / (tlen + 1.0)).min(2.0);
+        p.w_align * alignment_cost(letters, &g.path, &g.speed, p.w_slow) + p.w_len * len_pen + p.w_ends * ends
     }
 
     fn shape_cost(&self, letters: &[Pt], g: &Prepared) -> f32 {
         let tmpl = resample(letters, RESAMPLE);
         let loc = mean_dist(&g.path, &tmpl);
         let shape = mean_dist(&g.norm, &normalize(&tmpl));
-        let align = alignment_cost(letters, &g.path);
+        let align = alignment_cost(letters, &g.path, &g.speed, self.params.w_slow);
         let tlen: f32 = letters.windows(2).map(|w| w[0].d(w[1])).sum();
         let len_pen = ((g.length - tlen).abs() / (tlen + 1.0)).min(2.0);
-        2.4 * align + 1.3 * loc + 1.6 * shape + 0.8 * len_pen
+        let p = &self.params;
+        let ends = letters[0].d(g.start).powi(2) + letters[letters.len() - 1].d(g.end).powi(2);
+        p.w_align * align + p.w_loc * loc + p.w_shape * shape + p.w_len * len_pen + p.w_ends * ends
     }
 
     /// Decode a gesture. `trace` is in key-width units. `active` are
@@ -324,15 +493,33 @@ impl ShapeDecoder {
         active: &[(usize, f32)],
         prev: Option<&str>,
     ) -> Vec<GestureCandidate> {
-        let Some(g) = self.prepare(trace) else { return Vec::new() };
+        self.decode_timed(trace, None, keys, langs, active, prev)
+    }
+
+    /// Like [`decode`](Self::decode) with per-point timestamps in ms.
+    pub fn decode_timed(
+        &self,
+        trace: &[Pt],
+        times: Option<&[f32]>,
+        keys: &KeyMap,
+        langs: &[Language],
+        active: &[(usize, f32)],
+        prev: Option<&str>,
+    ) -> Vec<GestureCandidate> {
+        let Some(g) = self.prepare(trace, times) else { return Vec::new() };
         let mut scored: Vec<GestureCandidate> = Vec::new();
         for &(li, prior) in active {
             let lang = &langs[li];
             let mut words: Vec<(String, u8)> = Vec::new();
+            let prof = std::env::var_os("GLISSANDO_SWIPE_PROFILE").is_some();
+            let t0 = std::time::Instant::now();
             if let Some(d) = &lang.dict {
                 let mut ids = Vec::new();
                 self.feasible(d, keys, &g, &mut ids);
                 words.extend(ids.into_iter().map(|(id, f)| (d.word(id), f)));
+            }
+            if prof {
+                eprintln!("feasible: {} words in {:.2} ms", words.len(), t0.elapsed().as_secs_f64() * 1000.0);
             }
             for (w, u) in lang.user.words.iter() {
                 if u.blocked || !(u.pinned || u.count >= glissando_lang::user::LEARN_THRESHOLD) {
@@ -342,6 +529,8 @@ impl ShapeDecoder {
                     words.push((w.clone(), 0));
                 }
             }
+            // Stage 1: cheap alignment score, keep the most promising words.
+            let mut pre: Vec<(f32, String, u8, Vec<Pt>)> = Vec::new();
             for (w, f) in words {
                 if lang.user.is_blocked(&w) {
                     continue;
@@ -353,10 +542,39 @@ impl ShapeDecoder {
                 if letters[0].d(g.start) > self.params.end_radius || letters.last().unwrap().d(g.end) > self.params.end_radius {
                     continue;
                 }
+                let freq = if f > 0 { logf(f) } else { lang.dict_logf(&w).unwrap_or(-6.0) };
+                // Stage 0: O(word length) bound from ends and path length only.
+                let p = &self.params;
+                let ends = letters[0].d(g.start).powi(2) + letters[letters.len() - 1].d(g.end).powi(2);
+                let tlen: f32 = letters.windows(2).map(|w| w[0].d(w[1])).sum();
+                let len_pen = ((g.length - tlen).abs() / (tlen + 1.0)).min(2.0);
+                let q0 = -(p.w_len * len_pen + p.w_ends * ends) * p.w_geom + freq;
+                pre.push((q0, w, f, letters));
+            }
+            if pre.len() > STAGE1 {
+                pre.select_nth_unstable_by(STAGE1, |a, b| b.0.total_cmp(&a.0));
+                pre.truncate(STAGE1);
+            }
+            for e in pre.iter_mut() {
+                let freq = if e.2 > 0 { logf(e.2) } else { lang.dict_logf(&e.1).unwrap_or(-6.0) };
+                e.0 = -self.quick_cost(&e.3, &g) * self.params.w_geom + freq;
+            }
+            if pre.len() > STAGE2 {
+                pre.select_nth_unstable_by(STAGE2, |a, b| b.0.total_cmp(&a.0));
+                pre.truncate(STAGE2);
+            }
+            if std::env::var_os("GLISSANDO_SWIPE_PROFILE").is_some() {
+                eprintln!("stage1 done at {:.2} ms", t0.elapsed().as_secs_f64() * 1000.0);
+            }
+            for (_, w, f, letters) in pre {
                 let cost = self.shape_cost(&letters, &g);
                 let freq = if f > 0 { logf(f) } else { lang.dict_logf(&w).unwrap_or(-6.0) };
                 let ctx = context_bonus(lang, prev, &w);
-                let score = -cost * 2.2 + freq + lang.user.boost(&w) + ctx + prior;
+                let mut punct = if w.contains(['\'', '’', '-']) { self.params.punct_penalty } else { 0.0 };
+                if w.chars().count() > 1 && w.chars().all(|c| !c.is_lowercase()) {
+                    punct += self.params.caps_penalty;
+                }
+                let score = -cost * self.params.w_geom + freq + lang.user.boost(&w) + ctx + prior - punct;
                 scored.push(GestureCandidate { word: w, score, lang: li });
             }
         }

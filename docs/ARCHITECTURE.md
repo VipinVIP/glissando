@@ -74,9 +74,18 @@ penalty; combines with frequency, personal and context scores. Layout and
 language agnostic (works for ЙЦУКЕН, QWERTZ, letters in popups such as ё/ъ/ß
 fold onto their base key).
 
-Benchmark (`cargo run --release -p glissando-swipe --example bench`,
-synthetic gestures, 0.25 kw noise): en top-1 87.7 % / top-3 99.7 %, de 91.0 /
-100 %, ru 93.7 / 98.0 %; p95 latency < 1 ms on x86-64.
+Evaluation on **real human gestures** (FUTO swipe dataset, MIT licence,
+held-out `test.jsonl`, 3000 in-vocabulary English words, QWERTY,
+`cargo run --release -p glissando-swipe --example eval_futo`): top-1
+87.7 %, top-3 95.1 % without context; 88.4 % / 95.4 % with the previous word
+as context. Parameters were tuned on the `dev.jsonl` split only (from
+75.6 % / 86.9 % before tuning).
+
+Synthetic gestures (`--example bench`, 0.25 kw noise): en 98.0 % / 100 %,
+de 96.3 % / 100 %, ru 97.0 % / 98.0 %. Latency: three-stage pruning (O(L)
+bound → alignment for 700 → full score for 120) gives p95 ≈ 1.5 ms on
+x86-64; on the phone p50 2.5 ms / p95 10 ms on a big core before the last
+optimisation step.
 
 Optional future backend: FUTO Swipe (`swipe-library`, ExecuTorch) as a
 separate plugin package, because its weights carry their own licence
