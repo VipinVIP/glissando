@@ -128,7 +128,7 @@ impl Metrics {
     /// `height_scale` is the user's keyboard height preference (0.8..1.3),
     /// `font_scale` the label size preference.
     pub fn new(landscape: bool, height_scale: f32, font_scale: f32) -> Metrics {
-        let row = if landscape { 40.0 } else { 52.0 } * height_scale;
+        let row = if landscape { 37.0 } else { 52.0 } * height_scale;
         Metrics {
             strip_height: if landscape { 36.0 } else { 44.0 },
             row_height: row,

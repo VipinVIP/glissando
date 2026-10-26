@@ -450,6 +450,7 @@ impl App {
 
     fn im_done(&mut self) {
         self.im_serial = self.im_serial.wrapping_add(1);
+        dlog!("im done -> serial {}", self.im_serial);
         let was_active = self.im_current.active;
         let p = std::mem::take(&mut self.im_pending);
         let activated = p.active && !was_active;
@@ -580,6 +581,7 @@ impl App {
                 let len = p.len() as i32;
                 im.set_preedit_string(p.clone(), len, len);
             }
+            dlog!("im commit serial {} (preedit {} bytes)", app.im_serial, p.len());
             app.last_preedit = p;
             im.commit(app.im_serial);
         };
@@ -662,6 +664,9 @@ impl App {
                 }
             }
         }
+        // Text reaches the application before we spend time drawing; a late
+        // commit can carry a stale serial and be dropped by the compositor.
+        self.flush();
         self.write_geometry();
         self.schedule_timer();
         self.schedule_save();
@@ -913,6 +918,17 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
         }
         a.update_visibility();
         a.flush();
+    }
+    {
+        let w = Rc::downgrade(&app);
+        glib::idle_add_local_full(glib::Priority::LOW, move || {
+            if let Some(a) = w.upgrade() {
+                if let Ok(a) = a.try_borrow() {
+                    a.renderer.warm_fonts();
+                }
+            }
+            glib::ControlFlow::Break
+        });
     }
     let queue = Rc::new(RefCell::new(queue));
     let fd = conn.backend().poll_fd().as_raw_fd();

@@ -260,6 +260,7 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for Client {
             Event::CommitString { text } => c.pending.commit = Some(text.unwrap_or_default()),
             Event::DeleteSurroundingText { before_length, after_length } => c.pending.delete = Some((before_length, after_length)),
             Event::Done { serial } => {
+                eprintln!("tc: done {serial} preedit={:?} commit={:?}", c.pending.preedit.as_ref().map(|p| p.0.len()), c.pending.commit.as_ref().map(|s| s.len()));
                 c.serial = serial;
                 if let Some(ti) = &c.ti {
                     ti.set_text_change_cause(zwp_text_input_v3::ChangeCause::InputMethod);
@@ -379,6 +380,28 @@ impl Dispatch<wl_output::WlOutput, ()> for Ptr {
     }
 }
 
+/// Persistent pointer: reads scripts from stdin, answers "ok" after each.
+fn pointer_server(extent: (u32, u32)) {
+    use std::io::{BufRead, Write};
+    let conn = Connection::connect_to_env().expect("wayland");
+    let (globals, mut q) = registry_queue_init::<Ptr>(&conn).unwrap();
+    let qh = q.handle();
+    let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=5, ()).unwrap();
+    let mgr: zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1 = globals.bind(&qh, 1..=2, ()).expect("virtual pointer");
+    let vp = mgr.create_virtual_pointer(Some(&seat), &qh, ());
+    let mut st = Ptr { outputs: Vec::new() };
+    q.roundtrip(&mut st).unwrap();
+    let t0 = Instant::now();
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        run_script(&conn, &vp, &t0, &line, extent);
+        q.roundtrip(&mut st).unwrap();
+        println!("ok");
+        std::io::stdout().flush().unwrap();
+    }
+}
+
 fn pointer(script: &str, extent: (u32, u32)) {
     let conn = Connection::connect_to_env().expect("wayland");
     let (globals, mut q) = registry_queue_init::<Ptr>(&conn).unwrap();
@@ -389,6 +412,11 @@ fn pointer(script: &str, extent: (u32, u32)) {
     let mut st = Ptr { outputs: Vec::new() };
     q.roundtrip(&mut st).unwrap();
     let t0 = Instant::now();
+    run_script(&conn, &vp, &t0, script, extent);
+    q.roundtrip(&mut st).unwrap();
+}
+
+fn run_script(conn: &Connection, vp: &zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1, t0: &Instant, script: &str, extent: (u32, u32)) {
     let now = || t0.elapsed().as_millis() as u32;
     let (ew, eh) = extent;
     let move_to = |x: f64, y: f64| {
@@ -453,13 +481,22 @@ fn pointer(script: &str, extent: (u32, u32)) {
         conn.flush().unwrap();
         std::thread::sleep(Duration::from_millis(30));
     }
-    q.roundtrip(&mut st).unwrap();
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
         Some("textclient") => textclient(&args[2..]),
+        Some("pointer-server") => {
+            let extent = std::env::var("GLISSANDO_TK_EXTENT")
+                .ok()
+                .and_then(|s| {
+                    let (a, b) = s.split_once('x')?;
+                    Some((a.parse().ok()?, b.parse().ok()?))
+                })
+                .unwrap_or((360, 780));
+            pointer_server(extent)
+        }
         Some("pointer") => {
             let extent = std::env::var("GLISSANDO_TK_EXTENT")
                 .ok()

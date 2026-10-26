@@ -13,6 +13,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SWAY = os.path.join(ROOT, ".devtools/root/usr/bin/sway")
 GRIM = os.path.join(ROOT, ".devtools/root/usr/bin/grim")
 OUT_W, OUT_H = 360, 780
+LANDSCAPE = os.environ.get("E2E_LANDSCAPE") == "1"
+if LANDSCAPE:
+    OUT_W, OUT_H = 780, 360
 
 
 class Session:
@@ -46,7 +49,12 @@ class Session:
         self.tk_bin = os.path.join(ROOT, "target", prof, "glissando-testkit")
         self.geom_file = os.path.join(self.tmp, "geom.json")
         self.state_file = os.path.join(self.tmp, "state.json")
-        self.spawn("sway", [SWAY, "-c", os.path.join(ROOT, "tools/devenv/sway-test.conf")])
+        conf = os.path.join(ROOT, "tools/devenv/sway-test.conf")
+        if LANDSCAPE:
+            conf = os.path.join(self.tmp, "sway.conf")
+            with open(conf, "w") as f:
+                f.write("output * resolution 1080x2340 scale 3 transform 90 bg #202124 solid_color\ndefault_border none\nfocus_follows_mouse no\n")
+        self.spawn("sway", [SWAY, "-c", conf])
         for _ in range(100):
             socks = [s for s in os.listdir(rt) if s.startswith("wayland-") and not s.endswith(".lock")]
             if socks:
@@ -133,8 +141,19 @@ class Session:
         with open(self.state_file) as f:
             return json.load(f)
 
+    def pointer_async(self, script):
+        """Send a script to the persistent virtual pointer; returns a waiter."""
+        if not hasattr(self, "ptr"):
+            self.ptr = subprocess.Popen([self.tk_bin, "pointer-server"], env=self.env, stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, text=True)
+            self.procs.append(("pointer", self.ptr))
+            time.sleep(0.2)
+        self.ptr.stdin.write(script.replace("\n", " ") + "\n")
+        self.ptr.stdin.flush()
+        return lambda: self.ptr.stdout.readline()
+
     def pointer(self, script):
-        subprocess.run([self.tk_bin, "pointer", script], env=self.env, check=True, timeout=30)
+        assert self.pointer_async(script)().strip() == "ok"
         time.sleep(0.15)
 
     def tap(self, key, nth=0):
@@ -258,12 +277,13 @@ def multi(fn):
 @test
 def long_press_popup(s):
     x, y = s.key_pos("e")
-    p = subprocess.Popen([s.tk_bin, "pointer", f"down {x} {y}; sleep 900; move {x+30} {y-40}; sleep 400; up"], env=s.env)
+    kw = next(k["w"] for k in s.geometry() if k["key"] == "e")
+    done = s.pointer_async(f"down {x} {y}; sleep 900; move {x+kw} {y-40}; sleep 400; up")
     time.sleep(0.8)
     s.screenshot("longpress-popup")
     time.sleep(0.5)
     s.screenshot("longpress-select")
-    p.wait(timeout=10)
+    done()
     s.wait(lambda: s.state()["preedit"] in ("È", "É", "Ê"), "popup entry committed")
     s.screenshot("longpress-result")
 
@@ -335,6 +355,13 @@ def quick_menu_number_row(s):
     s.pointer(f"tap 36 {OUT_H - 22}")  # ABC in the footer
     s.wait(lambda: sum(1 for k in s.geometry() if k["key"] in "1234567890") >= 10, "number row shown")
     s.screenshot("numrow")
+
+
+@test
+def typing_without_emoji_suggestions(s):
+    s.type("hello")
+    s.wait(lambda: (s.state()["text"] + s.state()["preedit"]) == "Hello", "Hello typed")
+typing_without_emoji_suggestions.config = "emoji_suggestions = false\n"
 
 
 def main():

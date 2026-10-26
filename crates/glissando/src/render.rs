@@ -123,6 +123,18 @@ impl Renderer {
         Renderer { cache: Vec::new(), font_family: font_family.to_string() }
     }
 
+    /// Load the label and colour emoji fonts once, off the input path.
+    pub fn warm_fonts(&self) {
+        if let Ok(s) = cairo::ImageSurface::create(cairo::Format::ARgb32, 64, 64) {
+            if let Ok(cr) = cairo::Context::new(&s) {
+                for t in ["Aa Яя ß", "😀👋🍕"] {
+                    let l = self.layout(&cr, t, 20.0, false);
+                    pangocairo::functions::show_layout(&cr, &l);
+                }
+            }
+        }
+    }
+
     pub fn set_font(&mut self, family: &str) {
         if family != self.font_family {
             self.font_family = family.to_string();

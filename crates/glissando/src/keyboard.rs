@@ -16,6 +16,10 @@ use glissando_lang::engine::{Engine, FieldInfo, Op, Purpose, SuggestionKind};
 use glissando_lang::search::SpatialModel;
 use glissando_swipe::{clean_trace, KeyMap, Pt, ShapeDecoder};
 
+/// Vertical distance between rows in key widths on a typical phone layout
+/// (row pitch / key pitch), used to normalise touch coordinates.
+const ROW_ASPECT: f32 = 1.35;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavKey {
     Left,
@@ -273,15 +277,24 @@ impl Keyboard {
         }
     }
 
-    fn letter_centers(&self) -> Vec<(char, f32, f32)> {
+    /// Surface position -> model units: x in key widths, y in row pitches
+    /// scaled to a phone-like key aspect, so landscape (wide, low keys)
+    /// does not make adjacent rows look closer than neighbouring keys.
+    fn to_units(&self, x: f32, y: f32) -> (f32, f32) {
         let unit = self.geom.unit.max(1.0);
+        let row = self.metrics.row_height.max(1.0);
+        (x / unit, y / row * ROW_ASPECT)
+    }
+
+    fn letter_centers(&self) -> Vec<(char, f32, f32)> {
         self.keys
             .iter()
             .zip(&self.geom.keys)
             .filter_map(|(k, g)| {
                 let c = k.def.action.letter()?;
                 let (x, y) = g.visual.center();
-                Some((c, x / unit, y / unit))
+                let (ux, uy) = self.to_units(x, y);
+                Some((c, ux, uy))
             })
             .collect()
     }
@@ -1054,8 +1067,9 @@ impl Keyboard {
                         self.set_shift(s);
                         continue;
                     }
-                    let unit = self.geom.unit.max(1.0);
-                    self.activate_key_action(&action, Some((x / unit, y / unit)));
+
+                    let t = self.to_units(x, y);
+                    self.activate_key_action(&action, Some(t));
                 }
                 TouchEvent::CapsLock { .. } => self.set_shift(Shift::Locked),
                 TouchEvent::ShiftChordEnd { .. } => {
@@ -1141,8 +1155,8 @@ impl Keyboard {
     }
 
     fn decode_swipe(&mut self) {
-        let unit = self.geom.unit.max(1.0);
-        let raw: Vec<(f32, f32)> = self.touch.trace().iter().map(|p| (p.x / unit, p.y / unit)).collect();
+
+        let raw: Vec<(f32, f32)> = self.touch.trace().iter().map(|p| self.to_units(p.x, p.y)).collect();
         let pts: Vec<Pt> = clean_trace(&raw, 0.05);
         let prev = self.engine.context_words(1).pop();
         let cands = self.decoder.decode(&pts, &self.keymap, &self.engine.langs, &self.engine.active_priors(), prev.as_deref());
@@ -1442,5 +1456,40 @@ mod tests {
         kb.touch_up(1, x - 60.0, y, 1200);
         let navs = kb.take_actions().into_iter().filter(|a| matches!(a, Action::Nav(NavKey::Left))).count();
         assert!(navs >= 3, "{navs}");
+    }
+}
+
+#[cfg(test)]
+mod typing_tests {
+    use super::tests::test_keyboard;
+    use super::*;
+
+    #[test]
+    fn typing_hello_updates_preedit_every_key() {
+        let mut kb = test_keyboard(&["en"]);
+        crate::panels::init_emoji(
+            crate::emoji::EmojiDb::load(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/emoji/emoji.tsv"))),
+            crate::emoji::Recents::default(),
+        );
+        let mut last = String::new();
+        let mut t = 100;
+        for k in ["h", "e", "l", "l", "o"] {
+            let i = kb.keys.iter().position(|x| x.def.action == KeyAction::Text(k.into())).unwrap();
+            let (x, y) = kb.geom.keys[i].visual.center();
+            kb.touch_down(1, x, y, t);
+            kb.touch_up(1, x, y, t + 40);
+            let _ = kb.view(t + 50);
+            t += 200;
+            for a in kb.take_actions() {
+                if let Action::Ops(ops) = a {
+                    for op in ops {
+                        if let Op::Preedit(p) = op {
+                            last = p;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(last, "Hello");
     }
 }
