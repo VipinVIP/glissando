@@ -5,3 +5,4 @@
 *.glsd.tmp
 /data/dict/*.gld
 !/data/dict/README.md
+/dist

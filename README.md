@@ -26,7 +26,8 @@ Status: early but working. See [docs/PROGRESS.md](docs/PROGRESS.md).
   with retention and pinning, quick menu (one-handed mode, number row, theme,
   height, glide toggle, delete learned data).
 * Light/dark themes following the system, haptics via feedbackd with
-  adjustable strength, fractional scaling.
+  adjustable strength, fractional scaling, portrait and landscape.
+* Optional local voice typing (whisper.cpp), settings app (GTK4/libadwaita).
 
 ## Build and test
 

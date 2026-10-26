@@ -1,0 +1,26 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: glissando
+
+Files: *
+Copyright: 2026 Vladislav Shadiuk
+License: GPL-3+
+
+Files: usr/share/glissando/dict/*
+Copyright: The Android Open Source Project; Leipzig Corpora Collection
+License: Apache-2.0 and CC-BY-4.0
+Comment: word lists from AOSP LatinIME (Apache-2.0); word pair statistics
+ derived from Leipzig Corpora Collection news corpora (CC BY 4.0). See
+ /usr/share/doc/glissando/DICTIONARY-SOURCES.md.
+
+Files: usr/share/glissando/emoji/*
+Copyright: Unicode, Inc.
+License: Unicode-3.0
+
+License: GPL-3+
+ On Debian systems see /usr/share/common-licenses/GPL-3.
+License: Apache-2.0
+ On Debian systems see /usr/share/common-licenses/Apache-2.0.
+License: CC-BY-4.0
+ https://creativecommons.org/licenses/by/4.0/legalcode
+License: Unicode-3.0
+ See /usr/share/doc/glissando/LICENSE-UNICODE.

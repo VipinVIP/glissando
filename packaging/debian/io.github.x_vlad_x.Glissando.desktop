@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=glissando
+Comment=On-screen keyboard
+Exec=/usr/libexec/glissando/glissando-launch
+Icon=io.github.x_vlad_x.Glissando
+NoDisplay=true
+X-GNOME-Autostart-Phase=Panel
+X-GNOME-Provides=inputmethod
+X-GNOME-Autostart-Notify=true
+X-GNOME-AutoRestart=true
+X-Phosh-UsesFeedback=true
+X-GNOME-HiddenUnderSystemd=true

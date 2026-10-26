@@ -1,0 +1,21 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: glissando-voice
+
+Files: usr/bin/glissando-voice
+Copyright: 2026 Vladislav Shadiuk
+License: GPL-3+
+
+Files: usr/libexec/glissando/whisper-cli
+Copyright: The ggml authors (whisper.cpp)
+License: MIT
+
+Files: usr/share/glissando/voice/ggml-base-q8_0.bin
+Copyright: OpenAI (Whisper model weights), converted by the whisper.cpp project
+License: MIT
+
+License: GPL-3+
+ On Debian systems see /usr/share/common-licenses/GPL-3.
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files, to deal in the Software
+ without restriction, subject to including the copyright notice.

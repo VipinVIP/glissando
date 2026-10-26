@@ -1,0 +1,20 @@
+# Systemd user unit for glissando, installed as the Phosh-OSK.service
+# alternative. Started by gnome-session like the other Phosh keyboards.
+[Unit]
+Description=glissando on-screen keyboard
+Documentation=file:///usr/share/doc/glissando/README.md
+CollectMode=inactive-or-failed
+After=gnome-session-initialized.target
+
+[Service]
+Slice=session.slice
+Type=dbus
+BusName=sm.puri.OSK0
+ExecStart=/usr/libexec/glissando/glissando-launch
+Restart=on-failure
+RestartSec=1s
+TimeoutStopSec=5
+# The keyboard never needs the network.
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+NoNewPrivileges=yes
+LockPersonality=yes

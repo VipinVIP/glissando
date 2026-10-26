@@ -33,16 +33,16 @@ verified only partially (see note) · ⬜ not started.
 * password privacy ✅ e2e `password_field_is_private`
 * ✅ settings application (GTK4/libadwaita, en/ru/de), runs on the phone (launcher entry, user scope)
 * 🟡 emoji search (query in the strip, typed or glided) and emoji suggestions while typing — builds, unit tests pass, no dedicated e2e test yet
-* ⬜ voice input (local, e.g. whisper.cpp/Vosk) as optional module
-* ⬜ landscape layout tuning, split layout
+* ✅ local voice typing (glissando-voice + whisper.cpp), e2e `voice_input`, pipeline verified on the phone with a recorded sample
+* ✅ landscape: row-pitch normalised touch model, lower rows; full e2e suite passes with `E2E_LANDSCAPE=1`; ⬜ split layout
 
 ## Stage 6 – performance
-* measured first render 23–37 ms on device (cache build); ⬜ pre-render shift states, ⬜ partial damage
+* measured on device: key frame ~1 ms, cached shift ~2 ms, glide decode p50 2.5 ms (big core); ✅ shift states pre-rendered; ⬜ partial damage
 
 ## Stage 7 – device integration ✅/🟡
 * user-prefix deploy, `glissando-trial`, `glissando-session` with automatic
-  fallback, seccomp network restriction ✅ scripts written; trial on device ⬜
-* ⬜ Debian package with Phosh-OSK alternative
+  fallback, seccomp network restriction ✅ scripts written; trial on device ✅ (by the user)
+* ✅ Debian packages (`packaging/debian/build-deb.sh`) with a non-default Phosh-OSK alternative; install simulated on the device
 
 ## Privacy ✅
 * `tests/privacy/check.sh`: no networking crates, no DNS imports, e2e under
