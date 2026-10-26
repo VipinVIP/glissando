@@ -42,7 +42,7 @@ Recommends: feedbackd, fonts-noto-color-emoji
 Suggests: glissando-voice
 Section: utils
 Priority: optional
-Homepage: https://example.invalid/glissando
+Homepage: https://github.com/x-vlad-x/glissando
 Description: private on-screen keyboard for Phosh
  Glide typing, prediction and auto-correction, multilingual typing (English,
  German, Russian), emoji and clipboard panels. Works fully offline: no

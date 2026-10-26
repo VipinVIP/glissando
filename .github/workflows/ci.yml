@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libcairo2-dev libpango1.0-dev libgtk-4-dev libadwaita-1-dev
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ hashFiles('Cargo.lock') }}
+      - name: Build
+        run: cargo build --locked --workspace
+      - name: Unit tests
+        run: cargo test --locked --workspace
+      - name: No networking crates
+        run: |
+          ! cargo metadata --format-version 1 --locked | python3 -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))' \
+            | grep -qxE 'reqwest|hyper|ureq|curl|openssl|native-tls|rustls|h2|quinn|sentry'

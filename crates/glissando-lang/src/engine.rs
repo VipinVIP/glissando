@@ -949,6 +949,14 @@ fn should_autocorrect(
     if best.kind == CandKind::Completion && best.cost > 1.5 {
         return false;
     }
+    // A word typed in lowercase is never turned into a different proper noun
+    // or acronym (only its own capitalisation may be fixed).
+    if case_pattern(typed) == CasePattern::Lower
+        && case_pattern(&best.text) != CasePattern::Lower
+        && best.text.to_lowercase() != typed.to_lowercase()
+    {
+        return false;
+    }
     if typed_known {
         // Only fix capitalisation of known words (e.g. "berlin" -> "Berlin")
         // or near-certain misspellings that happen to be rare words.
@@ -961,6 +969,10 @@ fn should_autocorrect(
             .map(|c| c.score)
             .unwrap_or(f32::NEG_INFINITY);
         return best.score - typed_score > 6.0 && best.cost < 3.0;
+    }
+    // Two letters are too little evidence unless the target is a very common word.
+    if n == 2 && best.score < -2.0 {
+        return false;
     }
     // Unknown word: correct when the best candidate is clearly ahead.
     let margin = second.map(|s| best.score - s.score).unwrap_or(9.0);
@@ -1171,6 +1183,29 @@ mod tests {
         let mut d = Doc::default();
         type_str(&mut e, &mut d, "I am in berlin ");
         assert_eq!(d.shown(), "I am in Berlin ");
+    }
+
+    #[test]
+    fn no_autocorrect_into_proper_nouns() {
+        let ru = Language::new(
+            "ru",
+            Some(test_dict(&[("Ле", 150), ("де", 60), ("дела", 200), ("день", 210), ("как", 230)], &[("как", "дела", 240)])),
+            UserModel::in_memory(),
+        );
+        let rows = ["йцукенгшщзх", "фывапролджэ", "ячсмитьбю"];
+        let mut keys = Vec::new();
+        for (r, row) in rows.iter().enumerate() {
+            for (i, c) in row.chars().enumerate() {
+                keys.push((c, i as f32 + 0.5 + r as f32 * 0.5, r as f32 * 1.35 + 0.65));
+            }
+        }
+        let mut e = Engine::new(vec![ru], Settings::default());
+        e.set_layout(&["ru".to_string()], SpatialModel::new(keys));
+        e.set_surrounding("", "", true);
+        let mut d = Doc::default();
+        type_str(&mut e, &mut d, "как де");
+        assert!(!e.suggestions().iter().any(|s| s.autocorrect && s.text == "Ле"), "{:?}", e.suggestions());
+        assert!(e.suggestions().iter().any(|s| s.text == "дела"), "{:?}", e.suggestions());
     }
 
     #[test]

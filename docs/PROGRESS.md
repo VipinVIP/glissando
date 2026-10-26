@@ -28,7 +28,7 @@ verified only partially (see note) · ⬜ not started.
 * own decoder; e2e `glide_typing`; benchmark in ARCHITECTURE.md.
 * ✅ evaluation on real human traces (FUTO dataset): 87.7 % top-1 / 95.1 % top-3 held-out; ⬜ optional FUTO neural backend (deferred, see ARCHITECTURE.md).
 
-## Stage 5 – remaining Gboard features
+## Stage 5 – remaining features
 * space cursor + glide delete ✅ e2e `space_cursor_and_glide_delete`
 * password privacy ✅ e2e `password_field_is_private`
 * ✅ settings application (GTK4/libadwaita, en/ru/de), runs on the phone (launcher entry, user scope)

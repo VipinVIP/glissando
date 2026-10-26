@@ -4,8 +4,8 @@
 //! The machine is deliberately free of rendering and IO. The caller feeds
 //! pointer events and timer ticks (`now` in milliseconds, any monotonic
 //! origin) and acts on the returned [`TouchEvent`]s. Thresholds default to
-//! values derived from Gboard's observable behaviour (see
-//! `docs/research/gboard.md`).
+//! values tuned to feel like mainstream phone keyboards (see
+//! `docs/research/reference-behaviour.md`).
 
 use crate::geometry::LayerGeometry;
 
