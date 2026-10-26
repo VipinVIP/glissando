@@ -122,7 +122,8 @@ impl EmojiDb {
         if w.chars().count() < 3 {
             return Vec::new();
         }
-        let mut v: Vec<&Emoji> = self.emoji.iter().filter(|e| e.keywords.iter().any(|k| *k == w)).collect();
+        // Ranked like search, but only emoji with the word as a keyword.
+        let mut v: Vec<&Emoji> = self.search(&w, 40).into_iter().filter(|e| e.keywords.iter().any(|k| *k == w)).collect();
         v.truncate(max);
         v
     }
@@ -179,6 +180,7 @@ mod tests {
         assert!(db.emoji.len() > 1500);
         assert_eq!(db.groups[0], "Smileys & Emotion");
         assert_eq!(db.search("pizza", 3)[0].text, "🍕");
+        assert_eq!(db.for_word("Pizza", 1)[0].text, "🍕");
         assert!(db.search("кот", 20).iter().any(|e| e.text == "🐱" || e.text == "🐈"));
         assert!(db.search("herz", 10).iter().any(|e| e.text.starts_with('❤')));
         let wave = db.emoji.iter().find(|e| e.text == "👋").unwrap();

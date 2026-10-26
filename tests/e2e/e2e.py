@@ -299,6 +299,30 @@ def emoji_panel(s):
 
 
 @test
+def emoji_search(s):
+    s.tap("{emoji}")
+    time.sleep(0.4)
+    s.pointer(f"tap 72 {OUT_H - 22}")  # search icon in the emoji footer
+    s.wait(lambda: any(k["key"] == "p" for k in s.geometry()), "letters for the query")
+    s.type("pizza")
+    time.sleep(0.3)
+    s.screenshot("emoji-search")
+    top = OUT_H - s.current_height()
+    s.pointer(f"tap {44 + 116 + 22} {top + 22}")  # first result
+    s.wait(lambda: "\U0001F355" in s.state()["text"], "pizza emoji inserted")
+
+
+@test
+def emoji_suggestion_while_typing(s):
+    s.type("pizza")
+    time.sleep(0.3)
+    top = OUT_H - s.current_height()
+    s.pointer(f"tap {OUT_W - 24} {top + 22}")  # emoji slot at the right of the strip
+    s.wait(lambda: s.state()["text"].endswith("\U0001F355"), "word followed by emoji")
+    assert s.state()["text"].lower().startswith("pizza "), s.state()
+
+
+@test
 def quick_menu_number_row(s):
     top = OUT_H - s.current_height()
     s.pointer(f"tap 29 {top + 22}")  # menu button in the toolbar
