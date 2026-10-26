@@ -35,6 +35,8 @@ pub enum Icon {
 /// The current source colour is used.
 pub fn draw(cr: &cairo::Context, icon: Icon, cx: f64, cy: f64, size: f64) {
     cr.save().ok();
+    // Text drawing leaves a current point; arcs would connect to it.
+    cr.new_path();
     cr.translate(cx, cy);
     let s = size / 24.0;
     cr.scale(s, s);

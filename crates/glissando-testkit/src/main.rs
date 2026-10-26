@@ -407,6 +407,8 @@ fn pointer(script: &str, extent: (u32, u32)) {
             "move" => move_to(nums[0], nums[1]),
             "down" => {
                 move_to(nums[0], nums[1]);
+                conn.flush().unwrap();
+                std::thread::sleep(Duration::from_millis(15));
                 button(true);
             }
             "up" => button(false),

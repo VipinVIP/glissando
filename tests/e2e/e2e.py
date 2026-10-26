@@ -247,6 +247,72 @@ def space_cursor_and_glide_delete(s):
     s.wait(lambda: s.state()["text"] == "We ", "glide delete removed a word")
 
 
+MULTI = 'layouts = ["en", "ru", "de"]\n'
+
+
+def multi(fn):
+    fn.config = MULTI
+    return fn
+
+
+@test
+def long_press_popup(s):
+    x, y = s.key_pos("e")
+    p = subprocess.Popen([s.tk_bin, "pointer", f"down {x} {y}; sleep 900; move {x+30} {y-40}; sleep 400; up"], env=s.env)
+    time.sleep(0.8)
+    s.screenshot("longpress-popup")
+    time.sleep(0.5)
+    s.screenshot("longpress-select")
+    p.wait(timeout=10)
+    s.wait(lambda: s.state()["preedit"] in ("È", "É", "Ê"), "popup entry committed")
+    s.screenshot("longpress-result")
+
+
+@test
+@multi
+def switch_to_russian_and_type(s):
+    assert any(k["key"] == "{lang}" for k in s.geometry()), "globe key with several layouts"
+    s.tap("{lang}")
+    s.wait(lambda: any(k["key"] == "й" for k in s.geometry()), "russian layout")
+    s.type("привет ")
+    s.wait(lambda: s.state()["text"] == "Привет ", "russian text")
+    s.screenshot("russian")
+
+
+@test
+@multi
+def multilingual_latin(s):
+    # English layout with German enabled: German words are recognised.
+    s.type("danke ")
+    s.wait(lambda: s.state()["text"] == "Danke ", "german word on english layout")
+
+
+@test
+def emoji_panel(s):
+    s.tap("{emoji}")
+    time.sleep(0.4)
+    s.screenshot("emoji")
+    # First emoji cell sits at the top left of the panel area.
+    top = OUT_H - s.current_height()
+    s.pointer(f"tap 22 {top + 44 + 26}")
+    s.wait(lambda: len(s.state()["text"]) > 0 and not s.state()["text"].isascii(), "emoji committed")
+
+
+@test
+def quick_menu_number_row(s):
+    top = OUT_H - s.current_height()
+    s.pointer(f"tap 29 {top + 22}")  # menu button in the toolbar
+    time.sleep(0.3)
+    s.screenshot("menu")
+    # Number row toggle: third button of the first menu row.
+    w = OUT_W / 3
+    s.pointer(f"tap {2 * w + w / 2} {top + 44 + 30}")
+    time.sleep(0.3)
+    s.pointer(f"tap 36 {OUT_H - 22}")  # ABC in the footer
+    s.wait(lambda: sum(1 for k in s.geometry() if k["key"] in "1234567890") >= 10, "number row shown")
+    s.screenshot("numrow")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", default="")
@@ -266,7 +332,7 @@ def main():
             if t.__name__ == "password_field_is_private":
                 run_password(args)
             else:
-                s = Session(args)
+                s = Session(args, config=getattr(t, "config", None))
                 try:
                     t(s)
                 finally:
