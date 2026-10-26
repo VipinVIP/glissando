@@ -111,6 +111,40 @@ fn load_languages(layouts: &[Layout]) -> Vec<Language> {
         .collect()
 }
 
+/// Offscreen rendering benchmark with phone-like geometry (no compositor needed).
+fn bench_render() {
+    let config = Config::load();
+    let layouts = load_layouts(&config);
+    let engine = Engine::new(Vec::new(), engine_settings(&config));
+    let mut kb = keyboard::Keyboard::new(config.clone(), layouts, engine);
+    let (w, scale) = (413.0f32, 1.74f64);
+    kb.resize(w, false);
+    let h = kb.desired_height();
+    let (pw, ph) = ((w as f64 * scale).round() as i32, (h as f64 * scale).round() as i32);
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph).unwrap();
+    let mut r = render::Renderer::new(&config.font);
+    let theme = theme::Theme::dark();
+    let mut time = |name: &str, kb: &mut keyboard::Keyboard, r: &mut render::Renderer, n: u32| {
+        let t = std::time::Instant::now();
+        for i in 0..n {
+            let v = kb.view(1000 + i);
+            r.render(&surface, scale, &v, &theme);
+        }
+        println!("{name:<28} {:6.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / n as f64);
+    };
+    time("cold key layer", &mut kb, &mut r, 1);
+    time("idle frame (cached)", &mut kb, &mut r, 30);
+    kb.bench_press(5);
+    time("key pressed + preview", &mut kb, &mut r, 30);
+    kb.bench_trail(1000);
+    time("glide trail", &mut kb, &mut r, 30);
+    kb.toggle_shift_for_bench();
+    time("shift toggle (first time)", &mut kb, &mut r, 1);
+    kb.toggle_shift_for_bench();
+    time("shift toggle back (cached)", &mut kb, &mut r, 1);
+    println!("buffer {pw}x{ph} at scale {scale}");
+}
+
 fn main() {
     // A keyboard needs no GVfs; keep gio local-only (no daemons, no network mounts).
     // SAFETY: no other threads exist yet.
@@ -124,6 +158,10 @@ fn main() {
             "--no-dbus" => opts.no_dbus = true,
             "--dump-geometry" => opts.dump_geometry = args.next().map(PathBuf::from),
             "--allow-replacement" => {}
+            "--bench-render" => {
+                bench_render();
+                return;
+            }
             "--version" => {
                 println!("glissando {}", env!("CARGO_PKG_VERSION"));
                 return;

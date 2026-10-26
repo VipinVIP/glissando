@@ -1179,6 +1179,35 @@ impl Keyboard {
         }
     }
 
+    /// The view after the most likely next shift change, for pre-rendering.
+    pub fn alternate_view(&mut self, now: u32) -> Option<View> {
+        if self.panel.is_some() || !self.layer.starts_with("letters") {
+            return None;
+        }
+        let saved = (self.shift, self.keys_rev);
+        self.shift = if self.shift == Shift::Off { Shift::Once } else { Shift::Off };
+        let v = self.view(now);
+        (self.shift, self.keys_rev) = saved;
+        Some(v)
+    }
+
+    /// Simulate a press for render benchmarks.
+    pub fn bench_press(&mut self, key: usize) {
+        self.pressed = vec![key];
+        self.preview = Some((key, "q".into()));
+    }
+
+    pub fn bench_trail(&mut self, now: u32) {
+        let y = self.metrics.strip_height + self.metrics.row_height * 1.5;
+        self.trail = (0..40).map(|i| (10.0 + i as f32 * 8.0, y + (i as f32 * 0.3).sin() * 30.0, now - 200 + i * 5)).collect();
+        self.trail_until = now + 300;
+    }
+
+    pub fn toggle_shift_for_bench(&mut self) {
+        let s = if self.shift == Shift::Off { Shift::Once } else { Shift::Off };
+        self.set_shift(s);
+    }
+
     /// Key rectangles for automated tests (`--dump-geometry`).
     pub fn geometry_dump(&self) -> String {
         let mut s = String::from("[\n");

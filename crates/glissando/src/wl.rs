@@ -112,6 +112,7 @@ pub struct App {
     dirty: bool,
     timer: Option<glib::SourceId>,
     anim: Option<glib::SourceId>,
+    prewarm: Option<glib::SourceId>,
     user_hidden: bool,
     forced_visible: bool,
     osk: Option<Rc<OskService>>,
@@ -374,6 +375,36 @@ impl App {
         if self.kb.animating(now) {
             self.dirty = true;
         }
+        self.schedule_prewarm(bw, bh, scale);
+    }
+
+    /// While idle, render the key layer for the other shift state so that
+    /// auto-capitalisation and shift taps never wait for a full redraw.
+    fn schedule_prewarm(&mut self, bw: i32, bh: i32, scale: f64) {
+        if self.prewarm.is_some() {
+            return;
+        }
+        let me = self.me.clone();
+        self.prewarm = Some(glib::idle_add_local_full(glib::Priority::LOW, move || {
+            if let Some(app) = me.upgrade() {
+                if let Ok(mut app) = app.try_borrow_mut() {
+                    app.prewarm = None;
+                    if app.kb_busy() {
+                        return glib::ControlFlow::Break;
+                    }
+                    let now = app.now();
+                    if let Some(v) = app.kb.alternate_view(now) {
+                        let theme = app.theme.clone();
+                        app.renderer.prewarm(bw, bh, scale, &v, &theme);
+                    }
+                }
+            }
+            glib::ControlFlow::Break
+        }));
+    }
+
+    fn kb_busy(&self) -> bool {
+        self.dirty || self.kb.animating(self.now()) || self.kb.next_deadline().is_some()
     }
 
     fn frame_done(&mut self) {
@@ -834,6 +865,7 @@ pub fn run(opts: Options, config: Config, kb: Keyboard) -> Result<Rc<RefCell<App
         dirty: true,
         timer: None,
         anim: None,
+        prewarm: None,
         user_hidden: false,
         forced_visible: opts.show,
         osk: None,

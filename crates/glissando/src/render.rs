@@ -94,48 +94,92 @@ pub struct View {
 }
 
 pub struct Renderer {
-    cache: Option<(u64, i32, i32, Theme, cairo::ImageSurface)>,
+    /// Rendered key layers, most recent first, keyed by a content hash.
+    cache: Vec<(u64, cairo::ImageSurface)>,
     font_family: String,
+}
+
+const CACHE_SLOTS: usize = 4;
+
+fn hash_keys(view: &View, w: i32, h: i32, theme: &Theme, font: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hs = std::collections::hash_map::DefaultHasher::new();
+    (w, h, theme.dark, font).hash(&mut hs);
+    format!("{:?}", theme.key_border).hash(&mut hs);
+    format!("{:?}", view.metrics).hash(&mut hs);
+    for k in &view.keys {
+        for v in [k.rect.x, k.rect.y, k.rect.w, k.rect.h] {
+            v.to_bits().hash(&mut hs);
+        }
+        format!("{:?}{:?}{:?}", k.label, k.hint, k.style).hash(&mut hs);
+    }
+    hs.finish()
 }
 
 const TRAIL_MS: f32 = 280.0;
 
 impl Renderer {
     pub fn new(font_family: &str) -> Renderer {
-        Renderer { cache: None, font_family: font_family.to_string() }
-    }
-
-    pub fn invalidate(&mut self) {
-        self.cache = None;
+        Renderer { cache: Vec::new(), font_family: font_family.to_string() }
     }
 
     pub fn set_font(&mut self, family: &str) {
         if family != self.font_family {
             self.font_family = family.to_string();
-            self.cache = None;
+            self.cache.clear();
         }
+    }
+
+    /// Render the key layer of `view` into the cache without presenting it
+    /// (used while idle to make the next shift/layer switch instant).
+    pub fn prewarm(&mut self, pw: i32, ph: i32, scale: f64, view: &View, theme: &Theme) -> bool {
+        let key = hash_keys(view, pw, ph, theme, &self.font_family);
+        if self.cache.iter().any(|c| c.0 == key) {
+            return false;
+        }
+        let s = self.render_keys(pw, ph, scale, view, theme);
+        if self.cache.len() >= CACHE_SLOTS {
+            self.cache.remove(0);
+        }
+        // Least recently used position: the current layer stays the newest.
+        self.cache.insert(0, (key, s));
+        true
+    }
+
+    fn render_keys(&self, pw: i32, ph: i32, scale: f64, view: &View, theme: &Theme) -> cairo::ImageSurface {
+        let s = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph).expect("cache surface");
+        {
+            let cr = cairo::Context::new(&s).expect("cairo");
+            cr.scale(scale, scale);
+            theme.background.set(&cr);
+            cr.paint().ok();
+            for k in &view.keys {
+                self.draw_key(&cr, k, theme, &view.metrics, false);
+            }
+        }
+        s
     }
 
     /// Render into `surface` whose pixel size is the logical size times `scale`.
     pub fn render(&mut self, surface: &cairo::ImageSurface, scale: f64, view: &View, theme: &Theme) {
         let pw = surface.width();
         let ph = surface.height();
-        let valid = matches!(&self.cache, Some((rev, w, h, t, _)) if *rev == view.keys_rev && *w == pw && *h == ph && t == theme);
-        if !valid {
-            let s = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph).expect("cache surface");
-            {
-                let cr = cairo::Context::new(&s).expect("cairo");
-                cr.scale(scale, scale);
-                theme.background.set(&cr);
-                cr.paint().ok();
-                for k in &view.keys {
-                    self.draw_key(&cr, k, theme, &view.metrics, false);
+        let key = hash_keys(view, pw, ph, theme, &self.font_family);
+        match self.cache.iter().position(|c| c.0 == key) {
+            Some(i) => {
+                let c = self.cache.remove(i);
+                self.cache.push(c);
+            }
+            None => {
+                let s = self.render_keys(pw, ph, scale, view, theme);
+                self.cache.push((key, s));
+                if self.cache.len() > CACHE_SLOTS {
+                    self.cache.remove(0);
                 }
             }
-            self.cache = Some((view.keys_rev, pw, ph, theme.clone(), s));
         }
         let cr = cairo::Context::new(surface).expect("cairo");
-        if let Some((_, _, _, _, cached)) = &self.cache {
+        if let Some((_, cached)) = self.cache.last() {
             cr.set_source_surface(cached, 0.0, 0.0).ok();
             cr.set_operator(cairo::Operator::Source);
             cr.paint().ok();
