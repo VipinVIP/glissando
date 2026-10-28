@@ -10,6 +10,9 @@
   recognised
 - A word being composed when the field loses focus is no longer typed into
   whatever has the focus next
+- Long press on the Phosh home bar shows and hides the keyboard, as with
+  Stevia: visibility changes now reach Phosh (the `PropertiesChanged`
+  signal had the wrong signature)
 
 ## 0.2.0 – second preview
 

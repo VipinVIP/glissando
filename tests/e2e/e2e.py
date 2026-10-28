@@ -20,7 +20,7 @@ if LANDSCAPE:
 
 class Session:
     def __init__(self, args, purpose=None, hint=None, config=None, kb_args=(), toolkit=None, app_id=None,
-                 text=None, expect_keyboard=True):
+                 text=None, dbus=False, expect_keyboard=True):
         self.args = args
         self.tmp = tempfile.mkdtemp(prefix="glissando-e2e-")
         self.env = dict(os.environ)
@@ -65,7 +65,13 @@ class Session:
             time.sleep(0.05)
         else:
             raise RuntimeError("sway did not start: " + self.log("sway"))
-        self.spawn("kb", [self.kb_bin, "--no-dbus", "--dump-geometry", self.geom_file, *kb_args],
+        if dbus:
+            # A private session bus for sm.puri.OSK0.
+            bus = os.path.join(rt, "bus")
+            self.spawn("dbus", ["dbus-daemon", "--session", "--nofork", "--address=unix:path=" + bus])
+            self.env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + bus
+            self.wait(lambda: os.path.exists(bus), "session bus")
+        self.spawn("kb", [self.kb_bin, *([] if dbus else ["--no-dbus"]), "--dump-geometry", self.geom_file, *kb_args],
                    extra_env={"GLISSANDO_DEBUG": "1",
                               **({"GLISSANDO_DEBUG_INPUT": "1"} if os.environ.get("E2E_INPUT") else {}),
                               **({"LD_PRELOAD": os.environ["E2E_KB_PRELOAD"]} if os.environ.get("E2E_KB_PRELOAD") else {})})
@@ -295,6 +301,49 @@ def run_no_auto_show(args):
 
 
 @test
+def home_bar_toggle(s):
+    pass
+
+
+def shown(s):
+    events = [l for l in s.log("kb").splitlines() if "surface created" in l or "surface destroyed" in l]
+    return bool(events) and "created" in events[-1]
+
+
+def run_home_bar_toggle(args):
+    # Phosh's home bar long press calls SetVisible(!Visible) with Visible
+    # taken from its proxy's cache, which follows PropertiesChanged.
+    from gi.repository import Gio, GLib
+    s = Session(args, dbus=True)
+    try:
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = s.env["DBUS_SESSION_BUS_ADDRESS"]
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        s.wait(lambda: bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                     "NameHasOwner", GLib.Variant("(s)", ("sm.puri.OSK0",)), None, 0, -1,
+                                     None).unpack()[0], "sm.puri.OSK0 on the bus")
+        proxy = Gio.DBusProxy.new_sync(bus, Gio.DBusProxyFlags.NONE, None, "sm.puri.OSK0", "/sm/puri/OSK0",
+                                       "sm.puri.OSK0", None)
+        ctx = GLib.MainContext.default()
+
+        def cached():
+            while ctx.iteration(False):
+                pass
+            v = proxy.get_cached_property("Visible")
+            return v.unpack() if v is not None else None
+
+        # Shown on focus; before the fix the proxy never saw it and the long
+        # press only ever asked to show.
+        s.wait(lambda: cached() is True, "Visible after focus in the proxy")
+        for want in (False, True, False):
+            proxy.call_sync("SetVisible", GLib.Variant("(b)", (not cached(),)), Gio.DBusCallFlags.NONE, -1, None)
+            s.wait(lambda: cached() == want, f"Visible {want} in the proxy")
+            s.wait(lambda: shown(s) == want, f"keyboard shown={want}")
+    finally:
+        os.environ.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        s.close()
+
+
+@test
 def glide_typing(s):
     pts = []
     for ch in "hello":
@@ -483,6 +532,8 @@ def main():
                 run_password(args)
             elif t.__name__ == "no_auto_show_in_listed_apps":
                 run_no_auto_show(args)
+            elif t.__name__ == "home_bar_toggle":
+                run_home_bar_toggle(args)
             else:
                 s = Session(args, config=getattr(t, "config", None), toolkit=getattr(t, "toolkit", None),
                             purpose=getattr(t, "purpose", None), text=getattr(t, "text", None))

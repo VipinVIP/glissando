@@ -84,12 +84,20 @@ impl OskService {
             return;
         }
         if let Some(conn) = self.conn.borrow().as_ref() {
-            let changed = glib::VariantDict::new(None);
-            changed.insert_value("Visible", &v.to_variant());
-            let args = ("sm.puri.OSK0", changed.end(), Vec::<String>::new()).to_variant();
+            let args = visible_changed(v);
             let _ = conn.emit_signal(None, OSK_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged", Some(&args));
         }
     }
+}
+
+/// Arguments of `PropertiesChanged` for the `Visible` property, typed
+/// `(sa{sv}as)`. A tuple of Rust values would wrap the dictionary in a
+/// variant, and GDBus proxies (Phosh) drop such signals: Phosh then kept
+/// the keyboard as hidden and its home bar long press only ever showed it.
+fn visible_changed(v: bool) -> glib::Variant {
+    let changed = glib::VariantDict::new(None);
+    changed.insert_value("Visible", &v.to_variant());
+    glib::Variant::tuple_from_iter([OSK_NAME.to_variant(), changed.end(), Vec::<String>::new().to_variant()])
 }
 
 /// Haptic feedback through feedbackd. Uses `org.sigxcpu.Feedback.Haptic.Vibrate`
@@ -176,3 +184,17 @@ pub fn osk_enabled() -> bool {
     }
     gio::Settings::new("org.gnome.desktop.a11y.applications").boolean("screen-keyboard-enabled")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_changed_has_the_properties_changed_signature() {
+        let args = visible_changed(true);
+        assert_eq!(args.type_().as_str(), "(sa{sv}as)");
+        let dict = glib::VariantDict::new(Some(&args.child_value(1)));
+        assert_eq!(dict.lookup::<bool>("Visible").ok().flatten(), Some(true));
+    }
+}
+
