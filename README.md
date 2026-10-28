@@ -53,6 +53,7 @@ system (Mobian, postmarketOS, PureOS…).
 - Layouts for email and URL fields, number/phone/PIN pads
 - Terminal keys (Esc, Tab, Ctrl, Alt, arrows) in terminal apps
 - Choose apps where the keyboard does not open by itself (e.g. Calculator)
+- Long press on the Phosh home bar shows and hides the keyboard
 
 **More**
 - Emoji panel with categories, recents and search (EN/DE/RU keywords),

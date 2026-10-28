@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 – third preview
 
 - The second letter of a word no longer replaces the first when typing into
   a field whose text is selected (GNOME Maps search after picking a result):
