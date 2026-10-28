@@ -1,13 +1,16 @@
 //! Test helpers for end-to-end runs in a nested/headless compositor.
 //!
-//! * `textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt] [--app-id ID]` – a
+//! * `textclient [--purpose P] [--hint H] [--state FILE] [--toolkit qt] [--app-id ID] [--text T]` – a
 //!   window with a text-input-v3 field that behaves like a well-behaved
 //!   toolkit: it applies preedit/commit/delete events, reports surrounding
 //!   text and also accepts virtual keyboard keys. A click commits the
 //!   preedit where it is and puts the cursor at the start. With `--toolkit
 //!   qt` it never sets the text change cause, like Qt. Keys pressed with
-//!   Ctrl/Alt are written into the text as `<C-c>`, `<A-Left>`. Its text
-//!   state is written to FILE as JSON after every change.
+//!   Ctrl/Alt are written into the text as `<C-c>`, `<A-Left>`. With
+//!   `--text` the field starts with that text selected the way GTK selects a
+//!   focused search field: the selection is not reported and is deleted when
+//!   the preedit starts. Its text state is written to FILE as JSON after
+//!   every change.
 //! * `pointer <script>` – drives a virtual pointer. Script commands (`;`
 //!   separated): `tap X Y`, `down X Y`, `move X Y`, `up`, `swipe MS X1 Y1 X2 Y2 ...`,
 //!   `sleep MS`. Coordinates are logical, output-global.
@@ -40,6 +43,8 @@ struct Client {
     hint: zwp_text_input_v3::ContentHint,
     /// Report the text change cause (GTK does, Qt does not).
     send_cause: bool,
+    /// The whole text is selected without telling the input method.
+    hidden_selection: bool,
     state_file: Option<String>,
     keymap: HashMap<u32, char>,
     /// Depressed modifier mask from the virtual keyboard.
@@ -88,6 +93,12 @@ impl Client {
     fn apply_done(&mut self) {
         let p = std::mem::take(&mut self.pending);
         // 1. Remove preedit. 2. Delete surrounding. 3. Insert commit. 4. New preedit.
+        let starts = self.preedit.is_empty() && p.preedit.as_ref().map(|(t, _, _)| !t.is_empty()).unwrap_or(false);
+        if std::mem::take(&mut self.hidden_selection) && (starts || p.commit.is_some()) {
+            // GTK deletes the selection as the preedit starts.
+            self.text.clear();
+            self.cursor = 0;
+        }
         self.preedit.clear();
         if let Some((before, after)) = p.delete {
             let b = (before as usize).min(self.cursor);
@@ -358,6 +369,7 @@ fn textclient(args: &[String]) {
     let mut state_file = None;
     let mut send_cause = true;
     let mut app_id = "glissando-textclient".to_string();
+    let mut text = String::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -397,6 +409,10 @@ fn textclient(args: &[String]) {
                 i += 1;
                 app_id = args[i].clone();
             }
+            "--text" => {
+                i += 1;
+                text = args[i].clone();
+            }
             _ => {}
         }
         i += 1;
@@ -418,8 +434,9 @@ fn textclient(args: &[String]) {
     surface.commit();
     let mut c = Client {
         ti: Some(ti),
-        text: String::new(),
-        cursor: 0,
+        cursor: text.len(),
+        hidden_selection: !text.is_empty(),
+        text,
         preedit: String::new(),
         pending: Pending::default(),
         serial: 0,

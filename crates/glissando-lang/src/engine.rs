@@ -184,6 +184,9 @@ const SENT_KEEP: usize = 32;
 /// Shorter contexts that agree on this many characters are taken as the same
 /// text cut at different points (clients send windows of varying size).
 const CONTEXT_MATCH: usize = 64;
+/// Characters on each side of the composing word that must match to take
+/// it as committed in place.
+const WORD_CONTEXT: usize = 16;
 
 fn is_sentence_punct(s: &str) -> bool {
     matches!(s, "." | "," | "!" | "?" | ";" | ":" | "…")
@@ -298,17 +301,28 @@ impl Engine {
         if self.sent.iter().any(|(b, a)| same_before(before, b) && same_after(after, a)) {
             return false;
         }
-        // Some clients include the preedit in the surrounding text.
-        if !self.composing.is_empty() && same_after(after, &self.after) {
-            if let Some(b) = before.strip_suffix(self.composing.as_str()) {
-                if same_before(b, &self.before) {
-                    return false;
-                }
-            }
-        }
+        // The text changed while composing. Whether the word is gone depends
+        // on who changed it: Qt commits the preedit in place on a click, and
+        // phoc commits it on every touch on the client. GTK keeps showing it
+        // while it deletes a selection as the preedit starts, or while the
+        // app replaces the text, and the next key must extend the word, not
+        // replace it ("m", then "A" instead of "ma").
+        let committed = !self.composing.is_empty() && self.committed_in_place(before, after);
         self.take_context(before, after);
-        self.drop_composing();
+        if self.composing.is_empty() || committed {
+            self.drop_composing();
+        }
         true
+    }
+
+    /// Does the reported text hold the composing word as committed text
+    /// where the cursor was?
+    fn committed_in_place(&self, before: &str, after: &str) -> bool {
+        let n = self.before.chars().count();
+        let left: String = self.before.chars().skip(n.saturating_sub(WORD_CONTEXT)).collect();
+        let right: String = self.after.chars().take(WORD_CONTEXT).collect();
+        let word = format!("{left}{}{right}", self.composing);
+        format!("{before}{after}").contains(&word)
     }
 
     fn take_context(&mut self, before: &str, after: &str) {
@@ -1351,16 +1365,42 @@ mod tests {
     }
 
     #[test]
-    fn surrounding_text_may_include_the_preedit_or_be_cut() {
+    fn surrounding_text_may_be_cut() {
         let mut e = engine();
         let mut d = Doc::default();
         let long = "x".repeat(400) + " ";
         e.set_surrounding(&long, "", false);
         type_str(&mut e, &mut d, "wor");
-        assert!(!e.set_surrounding(&format!("{long}wor"), "", false));
         assert!(!e.set_surrounding(&long[200..], "", false), "shorter window");
         assert_eq!(e.composing(), "wor");
-        assert!(e.set_surrounding("other text ", "", false));
+    }
+
+    #[test]
+    fn preedit_committed_by_the_compositor_ends_the_word() {
+        // phoc commits the preedit when the client is touched (the map
+        // next to a search field) without telling the input method.
+        let mut e = engine();
+        let mut d = Doc::default();
+        type_str(&mut e, &mut d, "good hel");
+        assert!(e.set_surrounding("good hel", "", false));
+        assert_eq!(e.composing(), "");
+        assert_eq!(e.text("p", None), vec![Op::Preedit("p".into())]);
+    }
+
+    #[test]
+    fn text_changed_around_the_preedit_keeps_the_word() {
+        // GTK selects the text of a focused search field without reporting
+        // it and deletes the selection when the preedit starts.
+        let mut e = engine();
+        let mut d = Doc::default();
+        e.set_surrounding("ZI-Klinik für abhängiges Verhalten", "", false);
+        type_str(&mut e, &mut d, "m");
+        assert!(e.set_surrounding("", "", false));
+        assert_eq!(e.composing(), "m");
+        assert_eq!(e.text("a", None), vec![Op::Preedit("ma".into())]);
+        // The app replaces the text around the preedit.
+        assert!(e.set_surrounding("Mannheim", "", false));
+        assert_eq!(e.composing(), "ma");
     }
 
     #[test]

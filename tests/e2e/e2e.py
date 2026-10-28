@@ -20,7 +20,7 @@ if LANDSCAPE:
 
 class Session:
     def __init__(self, args, purpose=None, hint=None, config=None, kb_args=(), toolkit=None, app_id=None,
-                 expect_keyboard=True):
+                 text=None, expect_keyboard=True):
         self.args = args
         self.tmp = tempfile.mkdtemp(prefix="glissando-e2e-")
         self.env = dict(os.environ)
@@ -79,6 +79,8 @@ class Session:
             tc += ["--toolkit", toolkit]
         if app_id:
             tc += ["--app-id", app_id]
+        if text:
+            tc += ["--text", text]
         self.spawn("tc", tc)
         if not expect_keyboard:
             return
@@ -248,6 +250,17 @@ def editing_with_cursor_moves(s):
 def editing_with_cursor_moves_qt(s):
     click_moves_cursor_to_start(s)
 editing_with_cursor_moves_qt.toolkit = "qt"
+
+
+@test
+def typing_over_a_selected_search(s):
+    # GTK deletes the selected text as the preedit starts; before the fix
+    # the second letter replaced the first.
+    s.type("ma")
+    s.wait(lambda: s.state()["text"] == "" and s.state()["preedit"].lower() == "ma", "both letters composed")
+    s.type("nn ")
+    s.wait(lambda: s.state()["text"].lower() == "mann ", "word committed")
+typing_over_a_selected_search.text = "ZI-Klinik"
 
 
 @test
@@ -472,7 +485,7 @@ def main():
                 run_no_auto_show(args)
             else:
                 s = Session(args, config=getattr(t, "config", None), toolkit=getattr(t, "toolkit", None),
-                            purpose=getattr(t, "purpose", None))
+                            purpose=getattr(t, "purpose", None), text=getattr(t, "text", None))
                 try:
                     t(s)
                 finally:

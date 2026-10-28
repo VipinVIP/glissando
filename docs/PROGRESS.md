@@ -38,6 +38,7 @@ verified only partially (see note) · ⬜ not started.
 * ✅ terminal keys (Esc, Tab, Ctrl, Alt, arrows) for terminal fields, e2e `terminal_keys`
 * ✅ apps without automatic showing (wlr-foreign-toplevel app_id), settings page, e2e `no_auto_show_in_listed_apps`; 🟡 Stevia import only checked against its schema, not on the device
 * ✅ editing in clients without a text change cause (Qt): edits detected from the text, e2e `editing_with_cursor_moves_qt`; 🟡 not yet tried with real Qt/Chromium apps on the device
+* ✅ preedit kept while GTK deletes a selected text or the app changes it, preedit committed by phoc on touch recognised, e2e `typing_over_a_selected_search`; traced on the device in GNOME Maps
 
 ## Stage 6 – performance
 * measured on device: key frame ~1 ms, cached shift ~2 ms, glide decode p50 2.5 ms (big core); ✅ shift states pre-rendered; ⬜ partial damage

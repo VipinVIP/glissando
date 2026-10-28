@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- The second letter of a word no longer replaces the first when typing into
+  a field whose text is selected (GNOME Maps search after picking a result):
+  a text change around the preedit keeps the word being composed
+- Words are no longer doubled or split after touching the app while
+  composing on Phosh: phoc commits the preedit itself, which is now
+  recognised
+- A word being composed when the field loses focus is no longer typed into
+  whatever has the focus next
+
 ## 0.2.0 – second preview
 
 - Words no longer split in two after moving the cursor in Qt apps and other

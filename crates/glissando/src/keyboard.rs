@@ -480,8 +480,10 @@ impl Keyboard {
         if self.voice.take().is_some() {
             self.actions.push(Action::VoiceCancel);
         }
-        let ops = self.engine.commit_composing();
-        self.push_ops(ops);
+        // The client has already dropped the preedit (GTK) or the compositor
+        // committed it (phoc on a focus change). Typing it with virtual keys
+        // would put the word into whatever has the focus now.
+        self.engine.commit_composing();
         self.im_active = false;
         self.cancel_touches();
         self.engine.save_user_data();
